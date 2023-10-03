@@ -1,10 +1,12 @@
+type NodePtr<K, V> = Option<Box<Node<K, V>>>;
+
 #[derive(Debug, Default, PartialEq)]
 pub struct Node<K, V> {
     key: K,
     value: V,
     height: usize,
-    left: Option<Box<Node<K, V>>>,
-    right: Option<Box<Node<K, V>>>,
+    left: NodePtr<K, V>,
+    right: NodePtr<K, V>,
 }
 
 impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
@@ -127,7 +129,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
 
 #[derive(Debug, PartialEq)]
 pub struct Tree<K, V> {
-    root: Option<Box<Node<K, V>>>,
+    root: NodePtr<K, V>,
     size: usize,
 }
 
@@ -156,16 +158,16 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             (&mut subtree.right, &subtree.left)
         };
 
-        match insertion_subtree {
-            &mut None => {
+        match *insertion_subtree {
+            None => {
                 if other_subtree.is_none() {
                     //in any other case, height will not increase
                     subtree.height += 1;
                 }
                 *insertion_subtree = Some(Box::new(Node::<K, V>::new(key, value)));
-                return true;
+                true
             }
-            &mut Some(ref mut node) => {
+            Some(ref mut node) => {
                 let has_added_node = Self::insert_recursive(node, key, value);
                 subtree.rebalance();
                 has_added_node
@@ -185,9 +187,9 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
         }
     }
     ///Recursively searches through tree for node with key
-    fn search_node_recursive(subtree: &Box<Node<K, V>>, key: K) -> Option<&Box<Node<K, V>>> {
+    fn search_node_recursive(subtree: &Node<K, V>, key: K) -> Option<&Node<K, V>> {
         if subtree.key() == key {
-            return Some(&subtree);
+            return Some(subtree);
         }
 
         let next_node = if key < subtree.key() {
@@ -209,7 +211,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
         })
     }
     ///Removes the node with smallest key in subtree, if exists
-    fn take_min_node(subtree: &mut Option<Box<Node<K, V>>>) -> Option<Box<Node<K, V>>> {
+    fn take_min_node(subtree: &mut NodePtr<K, V>) -> NodePtr<K, V> {
         if let Some(mut node) = subtree.take() {
             //Recurse along the left side
             if let Some(smaller_subtree) = Self::take_min_node(&mut node.left) {
@@ -229,9 +231,9 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
     ///Deletes node with matching key recursively, returns (replacement node, removed node).
     /// * Replacement node - new head of subtree
     fn delete_node_recursive(
-        subtree: &mut Option<Box<Node<K, V>>>,
+        subtree: &mut NodePtr<K, V>,
         key: K,
-    ) -> (Option<Box<Node<K, V>>>, Option<Box<Node<K, V>>>) {
+    ) -> (NodePtr<K, V>, NodePtr<K, V>) {
         if let Some(mut root) = subtree.take() {
             if key < root.key() {
                 let (replacement, removed) = Self::delete_node_recursive(&mut root.left, key);
@@ -279,7 +281,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
         }
     }
     ///Deletes node from tree, returns deleted node
-    fn delete_node(&mut self, key: K) -> Option<Box<Node<K, V>>> {
+    fn delete_node(&mut self, key: K) -> NodePtr<K, V> {
         let (new_root, removed_node) = Self::delete_node_recursive(&mut self.root, key);
         if removed_node.is_some() {
             self.size -= 1;
