@@ -528,4 +528,5 @@ mod tests {
         assert_eq!(tree, get_big_balanced_tree());
         assert_eq!(removed, None)
     }
+    //TODO: more unit tests for deletion, test corner cases
 }
