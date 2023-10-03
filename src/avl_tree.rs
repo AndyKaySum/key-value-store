@@ -90,6 +90,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
 
     fn rebalance(&mut self) {
         //considers all cases and rebalances subtree accordingly
+        self.recalc_height();
         let balance = self.balance();
 
         if balance < -1 {
@@ -172,7 +173,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             }
             &mut Some(ref mut node) => {
                 let has_added_node = Self::insert_recursive(node, key, value);
-                subtree.recalc_height();
                 subtree.rebalance();
                 has_added_node
             }
@@ -218,7 +218,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             //Recurse along the left side
             if let Some(smaller_subtree) = Self::take_min_node(&mut node.left) {
                 //Took the smallest from below; update this node and put it back in the tree
-                node.recalc_height();
                 node.rebalance();
                 *subtree = Some(node);
                 Some(smaller_subtree)
@@ -242,7 +241,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                 root.left = replacement;
 
                 if removed.is_some() {
-                    root.recalc_height();
                     root.rebalance();
                 }
 
@@ -251,7 +249,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                 let (replacement, removed) = Self::delete_node_recursive(&mut root.right, key);
                 root.right = replacement;
                 if removed.is_some() {
-                    root.recalc_height();
                     root.rebalance();
                 }
 
@@ -266,7 +263,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                     let mut replacement_node = Self::take_min_node(&mut root.right).unwrap(); //should be able to safely unwrap here
                     //replacement node guaranteed to not have left children, otherwise that child would be the replacement
                     replacement_node.left = root.left.take();
-                    replacement_node.recalc_height();
                     replacement_node.rebalance();
                     (Some(replacement_node), Some(root))
                 } else {
@@ -277,7 +273,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                         root.right.take().unwrap()
                     };
 
-                    replacement_node.recalc_height();
                     replacement_node.rebalance();
                     (Some(replacement_node), Some(root))
                 }
