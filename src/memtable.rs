@@ -1,5 +1,6 @@
 use crate::avl_tree::Tree;
 
+#[derive(Debug)]
 pub struct Memtable<K, V> {
     tree: Tree<K, V>,
     capacity: usize,
