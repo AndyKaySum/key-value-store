@@ -91,15 +91,12 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
     fn rebalance(&mut self) {
         //considers all cases and rebalances subtree accordingly
         let balance = self.balance();
-        println!("key: {}, balance: {}", self.key(), balance);
 
         if balance < -1 {
             //left heavy
             if self.left.as_ref().is_some_and(|left| left.balance() <= 0) {
-                println!("rotating right"); //TODO: remove
                 self.rotate_right();
             } else {
-                println!("rotating left-right"); //TODO: remove
                 self.rotate_left_right();
             }
         } else if balance > 1 {
@@ -109,10 +106,8 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
                 .as_ref()
                 .is_some_and(|right| right.balance() >= 0)
             {
-                println!("rotating left"); //TODO: remove
                 self.rotate_left();
             } else {
-                println!("rotating right-left"); //TODO: remove
                 self.rotate_right_left();
             }
         }
@@ -243,8 +238,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
     ) -> (Option<Box<Node<K, V>>>, Option<Box<Node<K, V>>>) {
         if let Some(mut root) = subtree.take() {
             if key < root.key() {
-                println!("recurse: left");
-
                 let (replacement, removed) = Self::delete_node_recursive(&mut root.left, key);
                 root.left = replacement;
 
@@ -255,7 +248,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
 
                 (Some(root), removed)
             } else if key > root.key() {
-                println!("recurse: right");
                 let (replacement, removed) = Self::delete_node_recursive(&mut root.right, key);
                 root.right = replacement;
                 if removed.is_some() {
@@ -267,20 +259,17 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             } else {
                 //need to remove root
                 if root.left.is_none() && root.right.is_none() {
-                    println!("case 1: no child");
                     //case 1: no children
                     (None, Some(root))
                 } else if root.left.is_some() && root.right.is_some() {
-                    println!("case 2: 2 children");
                     //case 2: 2 children
                     let mut replacement_node = Self::take_min_node(&mut root.right).unwrap(); //should be able to safely unwrap here
-                                                                                              //replacement node guaranteed to not have left children, otherwise that child would be the replacement
+                    //replacement node guaranteed to not have left children, otherwise that child would be the replacement
                     replacement_node.left = root.left.take();
                     replacement_node.recalc_height();
                     replacement_node.rebalance();
                     (Some(replacement_node), Some(root))
                 } else {
-                    println!("case 3: 1 child");
                     //case 3: 1 child
                     let mut replacement_node = if root.left.is_some() {
                         root.left.take().unwrap()
@@ -294,7 +283,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                 }
             }
         } else {
-            println!("case: root emtpy");
             (None, None)
         }
     }
