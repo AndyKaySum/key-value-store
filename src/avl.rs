@@ -210,9 +210,9 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
     ///Removes the node with smallest key in subtree, if exists
     fn take_min_node(subtree: &mut NodePtr<K, V>) -> NodePtr<K, V> {
         if let Some(mut node) = subtree.take() {
-            //Recurse along the left side
+            //Recurse left side
             if let Some(smaller_subtree) = Self::take_min_node(&mut node.left) {
-                //Took the smallest from below; update this node and put it back in the tree
+                //Took the smallest from below, update this node and put it back in the tree
                 node.rebalance();
                 *subtree = Some(node);
                 Some(smaller_subtree)
@@ -232,18 +232,16 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
         key: K,
     ) -> (NodePtr<K, V>, NodePtr<K, V>) {
         if let Some(mut root) = subtree.take() {
-            if key < root.key() {
-                let (replacement, removed) = Self::delete_node_recursive(&mut root.left, key);
-                root.left = replacement;
+            if key != root.key() {
+                let replacement_subtree = if key < root.key() {
+                    &mut root.left
+                } else {
+                    &mut root.right
+                };
 
-                if removed.is_some() {
-                    root.rebalance();
-                }
+                let (replacement, removed) = Self::delete_node_recursive(replacement_subtree, key);
+                *replacement_subtree = replacement;
 
-                (Some(root), removed)
-            } else if key > root.key() {
-                let (replacement, removed) = Self::delete_node_recursive(&mut root.right, key);
-                root.right = replacement;
                 if removed.is_some() {
                     root.rebalance();
                 }
