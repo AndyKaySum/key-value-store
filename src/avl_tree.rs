@@ -130,20 +130,17 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
 #[derive(Debug, PartialEq)]
 pub struct Tree<K, V> {
     root: NodePtr<K, V>,
-    size: usize,
+    len: usize,
 }
 
 impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
     ///Creates a new AVL tree instance
     pub fn new() -> Tree<K, V> {
-        Tree {
-            root: None,
-            size: 0,
-        }
+        Tree { root: None, len: 0 }
     }
     ///Returns number of elements in tree
-    pub fn size(&self) -> usize {
-        self.size
+    pub fn len(&self) -> usize {
+        self.len
     }
     ///Insert key-value pair into Avl Subtree using recursion, returns true iff size size increases
     fn insert_recursive(subtree: &mut Box<Node<K, V>>, key: K, value: V) -> bool {
@@ -179,11 +176,11 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
         if let Some(ref mut root) = self.root {
             let increased_size = Self::insert_recursive(root, key, value);
             if increased_size {
-                self.size += 1;
+                self.len += 1;
             }
         } else {
             self.root = Some(Box::new(Node::new(key, value)));
-            self.size += 1;
+            self.len += 1;
         }
     }
     ///Recursively searches through tree for node with key
@@ -284,7 +281,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
     fn delete_node(&mut self, key: K) -> NodePtr<K, V> {
         let (new_root, removed_node) = Self::delete_node_recursive(&mut self.root, key);
         if removed_node.is_some() {
-            self.size -= 1;
+            self.len -= 1;
         }
         self.root = new_root;
         removed_node
@@ -301,7 +298,7 @@ mod tests {
 
     fn get_balanced_tree() -> Tree<&'static str, u32> {
         Tree::<&str, u32> {
-            size: 3,
+            len: 3,
             root: Some(Box::new(Node::<&str, u32> {
                 key: "b",
                 value: 2,
@@ -325,7 +322,7 @@ mod tests {
     }
     fn get_big_balanced_tree() -> Tree<&'static str, u32> {
         Tree::<&str, u32> {
-            size: 6,
+            len: 6,
             root: Some(Box::new(Node::<&str, u32> {
                 key: "d",
                 value: 4,
@@ -373,7 +370,7 @@ mod tests {
         tree.insert("c", 3);
         tree.insert("b", 2);
 
-        assert_eq!(tree.size(), 3);
+        assert_eq!(tree.len(), 3);
     }
 
     #[test]
@@ -461,7 +458,7 @@ mod tests {
     #[test]
     fn test_delete() {
         let removed_tree = Tree::<&str, u32> {
-            size: 5,
+            len: 5,
             root: Some(Box::new(Node::<&str, u32> {
                 key: "d",
                 value: 4,
@@ -504,7 +501,7 @@ mod tests {
     #[test]
     fn test_delete_root() {
         let removed_tree = Tree::<&str, u32> {
-            size: 2,
+            len: 2,
             root: Some(Box::new(Node::<&str, u32> {
                 key: "c",
                 value: 3,
