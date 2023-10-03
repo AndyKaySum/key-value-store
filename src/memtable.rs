@@ -20,6 +20,9 @@ impl<
     pub fn capacity(&self) -> usize {
         self.capacity
     }
+    pub fn len(&self) -> usize {
+        self.tree.len()
+    }
     pub fn put(&mut self, key: K, value: V) {
         self.tree.insert(key, value);
     }
