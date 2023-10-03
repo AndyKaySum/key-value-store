@@ -10,6 +10,16 @@ pub struct Node<K, V> {
 impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
     const DEFAULT_HEIGHT: usize = 0;
     const NONE_HEIGHT: i32 = -1; //Height of children that are None
+    ///Creates a new instance of Node
+    pub fn new(key: K, value: V) -> Node<K, V> {
+        Node {
+            key,
+            value,
+            height: 0,
+            right: None,
+            left: None,
+        }
+    }
     pub fn key(&self) -> K {
         self.key.clone()
     }
@@ -113,16 +123,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
             }
         }
     }
-
-    pub fn new(key: K, value: V) -> Node<K, V> {
-        Node {
-            key,
-            value,
-            height: 0,
-            right: None,
-            left: None,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -132,24 +132,18 @@ pub struct Tree<K, V> {
 }
 
 impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
-    pub fn size(&self) -> usize {
-        self.size
-    }
-    ///Initializes an empty Memtable
+    ///Creates a new AVL tree instance
     pub fn new() -> Tree<K, V> {
         Tree {
             root: None,
             size: 0,
         }
     }
-    ///Initializes a Memtable instance from an SST (key value tuple array)
-    fn from(arr: &[(K, V)]) -> Tree<K, V> {
-        if arr.is_empty() {
-            return Tree::<K, V>::new();
-        }
-        unimplemented!()
+    ///Returns number of elements in tree
+    pub fn size(&self) -> usize {
+        self.size
     }
-    ///Insert key-value pair into Avl Subtree recursively, returns true iff size size increases
+    ///Insert key-value pair into Avl Subtree using recursion, returns true iff size size increases
     fn insert_recursive(subtree: &mut Box<Node<K, V>>, key: K, value: V) -> bool {
         if subtree.key() == key {
             subtree.value = value;
@@ -178,7 +172,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             }
         }
     }
-    ///Insert key-value pair into Avl Subtree
+    ///Inserts key-value pair into Avl Subtree
     pub fn insert(&mut self, key: K, value: V) {
         if let Some(ref mut root) = self.root {
             let increased_size = Self::insert_recursive(root, key, value);
@@ -190,6 +184,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             self.size += 1;
         }
     }
+    ///Recursively searches through tree for node with key
     fn search_node_recursive(subtree: &Box<Node<K, V>>, key: K) -> Option<&Box<Node<K, V>>> {
         if subtree.key() == key {
             return Some(&subtree);
@@ -207,6 +202,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             None
         }
     }
+    ///Searches tree for key, returns value if exists
     pub fn search(&self, key: K) -> Option<V> {
         self.root.as_ref().and_then(|root| {
             Self::search_node_recursive(root, key).map(|result_node| result_node.value())
@@ -230,7 +226,8 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             None
         }
     }
-    ///returns reattachment node and deleted node
+    ///Deletes node with matching key recursively, returns (replacement node, removed node).
+    /// * Replacement node - new head of subtree
     fn delete_node_recursive(
         subtree: &mut Option<Box<Node<K, V>>>,
         key: K,
@@ -261,7 +258,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                 } else if root.left.is_some() && root.right.is_some() {
                     //case 2: 2 children
                     let mut replacement_node = Self::take_min_node(&mut root.right).unwrap(); //should be able to safely unwrap here
-                    //replacement node guaranteed to not have left children, otherwise that child would be the replacement
+                                                                                              //replacement node guaranteed to not have left children, otherwise that child would be the replacement
                     replacement_node.left = root.left.take();
                     replacement_node.rebalance();
                     (Some(replacement_node), Some(root))
@@ -281,7 +278,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
             (None, None)
         }
     }
-    ///deletes node from tree, returns deleted node
+    ///Deletes node from tree, returns deleted node
     fn delete_node(&mut self, key: K) -> Option<Box<Node<K, V>>> {
         let (new_root, removed_node) = Self::delete_node_recursive(&mut self.root, key);
         if removed_node.is_some() {
@@ -290,12 +287,9 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
         self.root = new_root;
         removed_node
     }
-    ///deletes node from tree, returns deleted value
+    ///Deletes node from tree, returns deleted value
     pub fn delete(&mut self, key: K) -> Option<V> {
         self.delete_node(key).map(|node| node.value())
-    }
-    pub fn scan(&self, key1: K, key2: K) -> Vec<(K, V)> {
-        unimplemented!()
     }
 }
 
