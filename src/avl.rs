@@ -1,7 +1,7 @@
-type NodePtr<K, V> = Option<Box<Node<K, V>>>;
+type NodePtr<K, V> = Option<Box<AvlNode<K, V>>>;
 
 #[derive(Debug, Default, PartialEq)]
-pub struct Node<K, V> {
+pub struct AvlNode<K, V> {
     key: K,
     value: V,
     height: usize,
@@ -9,12 +9,12 @@ pub struct Node<K, V> {
     right: NodePtr<K, V>,
 }
 
-impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
+impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlNode<K, V> {
     const DEFAULT_HEIGHT: usize = 0;
     const NONE_HEIGHT: i32 = -1; //Height of children that are None
     ///Creates a new instance of Node
-    pub fn new(key: K, value: V) -> Node<K, V> {
-        Node {
+    pub fn new(key: K, value: V) -> AvlNode<K, V> {
+        AvlNode {
             key,
             value,
             height: 0,
@@ -128,22 +128,22 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Node<K, V> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Tree<K, V> {
+pub struct AvlTree<K, V> {
     root: NodePtr<K, V>,
     len: usize,
 }
 
-impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
+impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V> {
     ///Creates a new AVL tree instance
-    pub fn new() -> Tree<K, V> {
-        Tree { root: None, len: 0 }
+    pub fn new() -> AvlTree<K, V> {
+        AvlTree { root: None, len: 0 }
     }
     ///Returns number of elements in tree
     pub fn len(&self) -> usize {
         self.len
     }
     ///Insert key-value pair into Avl Subtree using recursion, returns true iff size size increases
-    fn insert_recursive(subtree: &mut Box<Node<K, V>>, key: K, value: V) -> bool {
+    fn insert_recursive(subtree: &mut Box<AvlNode<K, V>>, key: K, value: V) -> bool {
         if subtree.key() == key {
             subtree.value = value;
             return false;
@@ -161,7 +161,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                     //in any other case, height will not increase
                     subtree.height += 1;
                 }
-                *insertion_subtree = Some(Box::new(Node::<K, V>::new(key, value)));
+                *insertion_subtree = Some(Box::new(AvlNode::<K, V>::new(key, value)));
                 true
             }
             Some(ref mut node) => {
@@ -179,12 +179,12 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
                 self.len += 1;
             }
         } else {
-            self.root = Some(Box::new(Node::new(key, value)));
+            self.root = Some(Box::new(AvlNode::new(key, value)));
             self.len += 1;
         }
     }
     ///Recursively searches through tree for node with key
-    fn search_node_recursive(subtree: &Node<K, V>, key: K) -> Option<&Node<K, V>> {
+    fn search_node_recursive(subtree: &AvlNode<K, V>, key: K) -> Option<&AvlNode<K, V>> {
         if subtree.key() == key {
             return Some(subtree);
         }
@@ -296,21 +296,21 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> Tree<K, V> {
 mod tests {
     use super::*;
 
-    fn get_balanced_tree() -> Tree<&'static str, u32> {
-        Tree::<&str, u32> {
+    fn get_balanced_tree() -> AvlTree<&'static str, u32> {
+        AvlTree::<&str, u32> {
             len: 3,
-            root: Some(Box::new(Node::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u32> {
                 key: "b",
                 value: 2,
                 height: 1,
-                left: Some(Box::new(Node {
+                left: Some(Box::new(AvlNode {
                     key: "a",
                     value: 1,
                     height: 0,
                     left: None,
                     right: None,
                 })),
-                right: Some(Box::new(Node {
+                right: Some(Box::new(AvlNode {
                     key: "c",
                     value: 3,
                     height: 0,
@@ -320,25 +320,25 @@ mod tests {
             })),
         }
     }
-    fn get_big_balanced_tree() -> Tree<&'static str, u32> {
-        Tree::<&str, u32> {
+    fn get_big_balanced_tree() -> AvlTree<&'static str, u32> {
+        AvlTree::<&str, u32> {
             len: 6,
-            root: Some(Box::new(Node::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u32> {
                 key: "d",
                 value: 4,
                 height: 2,
-                left: Some(Box::new(Node {
+                left: Some(Box::new(AvlNode {
                     key: "b",
                     value: 2,
                     height: 1,
-                    left: Some(Box::new(Node {
+                    left: Some(Box::new(AvlNode {
                         key: "a",
                         value: 1,
                         height: 0,
                         left: None,
                         right: None,
                     })),
-                    right: Some(Box::new(Node {
+                    right: Some(Box::new(AvlNode {
                         key: "c",
                         value: 3,
                         height: 0,
@@ -346,12 +346,12 @@ mod tests {
                         right: None,
                     })),
                 })),
-                right: Some(Box::new(Node {
+                right: Some(Box::new(AvlNode {
                     key: "e",
                     value: 5,
                     height: 1,
                     left: None,
-                    right: Some(Box::new(Node {
+                    right: Some(Box::new(AvlNode {
                         key: "f",
                         value: 6,
                         height: 0,
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_insert_size() {
-        let mut tree = Tree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u32>::new();
         tree.insert("a", 1);
         tree.insert("c", 3);
         tree.insert("b", 2);
@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_rotation_left() {
-        let mut tree = Tree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u32>::new();
         //forced a left rotation with insertion order
         tree.insert("a", 1);
         tree.insert("b", 2);
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_rotation_right() {
-        let mut tree = Tree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u32>::new();
         //forced a right rotation with insertion order
         tree.insert("c", 3);
         tree.insert("b", 2);
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_rotation_left_right() {
-        let mut tree = Tree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u32>::new();
         //forced a left-right rotation with insertion order
         tree.insert("c", 3);
         tree.insert("a", 1);
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_rotation_right_left() {
-        let mut tree = Tree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u32>::new();
         //forced a right-left rotation with insertion order
         tree.insert("c", 3);
         tree.insert("a", 1);
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_rotation_big_tree() {
-        let mut tree = Tree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u32>::new();
         //forced a right-left rotation with insertion order
         tree.insert("c", 3);
         tree.insert("a", 1);
@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn test_take_min() {
         let mut tree = get_big_balanced_tree();
-        let min = Tree::take_min_node(&mut tree.root).unwrap();
+        let min = AvlTree::take_min_node(&mut tree.root).unwrap();
         assert_eq!(min.key, "a");
     }
 
@@ -457,18 +457,18 @@ mod tests {
 
     #[test]
     fn test_delete() {
-        let removed_tree = Tree::<&str, u32> {
+        let removed_tree = AvlTree::<&str, u32> {
             len: 5,
-            root: Some(Box::new(Node::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u32> {
                 key: "d",
                 value: 4,
                 height: 2,
-                left: Some(Box::new(Node {
+                left: Some(Box::new(AvlNode {
                     key: "b",
                     value: 2,
                     height: 1,
                     left: None,
-                    right: Some(Box::new(Node {
+                    right: Some(Box::new(AvlNode {
                         key: "c",
                         value: 3,
                         height: 0,
@@ -476,12 +476,12 @@ mod tests {
                         right: None,
                     })),
                 })),
-                right: Some(Box::new(Node {
+                right: Some(Box::new(AvlNode {
                     key: "e",
                     value: 5,
                     height: 1,
                     left: None,
-                    right: Some(Box::new(Node {
+                    right: Some(Box::new(AvlNode {
                         key: "f",
                         value: 6,
                         height: 0,
@@ -500,13 +500,13 @@ mod tests {
 
     #[test]
     fn test_delete_root() {
-        let removed_tree = Tree::<&str, u32> {
+        let removed_tree = AvlTree::<&str, u32> {
             len: 2,
-            root: Some(Box::new(Node::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u32> {
                 key: "c",
                 value: 3,
                 height: 1,
-                left: Some(Box::new(Node {
+                left: Some(Box::new(AvlNode {
                     key: "a",
                     value: 1,
                     height: 0,

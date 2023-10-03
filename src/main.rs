@@ -1,4 +1,4 @@
-mod avl_tree;
+mod avl;
 mod memtable;
 
 fn main() {

@@ -1,8 +1,8 @@
-use crate::avl_tree::Tree;
+use crate::avl::AvlTree;
 
 #[derive(Debug)]
 pub struct Memtable<K, V> {
-    tree: Tree<K, V>,
+    tree: AvlTree<K, V>,
     capacity: usize,
 }
 
@@ -14,7 +14,7 @@ impl<
     ///Initializes an empty Memtable with a given capacity
     pub fn new(capacity: usize) -> Memtable<K, V> {
         Memtable {
-            tree: Tree::new(),
+            tree: AvlTree::new(),
             capacity,
         }
     }
