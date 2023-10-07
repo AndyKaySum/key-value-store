@@ -33,7 +33,31 @@ impl<
     pub fn pop(&mut self, key: K) -> Option<V> {
         self.tree.delete(key)
     }
+    pub fn is_full(&self) -> bool {
+        self.tree.len() >= self.capacity
+    }
+    // Performs inorder traversal of the tree and returns a vector of all the key-value pairs 
+    // with key between key1 and key2 
     pub fn scan(&self, key1: K, key2: K) -> Vec<(K, V)> {
-        unimplemented!() //TODO: part 1.2
+        let mut result = Vec::new();
+        let mut stack = Vec::new();
+        let mut current = self.tree.root().as_ref().map(|node| &**node);
+
+        while let Some(node) = current {
+            if node.key() >= key1 && node.key() <= key2 {
+                result.push((node.key().clone(), node.value()));
+            }
+
+            if node.left().is_some() && node.key() >= key1 {
+                stack.push(node.left().as_ref().unwrap());
+            }
+
+            if node.right().is_some() && node.key() <= key2 {
+                current = node.right().as_ref().map(|node| &**node);
+            } else {
+                current = stack.pop().map(|node| &**node);
+            }
+        }
+        result
     }
 }

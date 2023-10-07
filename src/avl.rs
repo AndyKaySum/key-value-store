@@ -31,6 +31,12 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlNode<K, V
     pub fn height(&self) -> usize {
         self.height
     }
+    pub fn left(&self) -> &NodePtr<K, V> {
+        &self.left
+    }
+    pub fn right(&self) -> &NodePtr<K, V> {
+        &self.right
+    }
     fn balance(&self) -> i32 {
         let [mut l_height, mut r_height] = [Self::NONE_HEIGHT; 2];
         if let Some(left) = &self.left {
@@ -141,6 +147,10 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
     ///Returns number of elements in tree
     pub fn len(&self) -> usize {
         self.len
+    }
+    // Returns the root node of the tree
+    pub fn root(&self) -> &NodePtr<K, V> {
+        &self.root
     }
     ///Insert key-value pair into Avl Subtree using recursion, returns true iff size size increases
     fn insert_recursive(subtree: &mut Box<AvlNode<K, V>>, key: K, value: V) -> bool {
