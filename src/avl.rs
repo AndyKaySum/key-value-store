@@ -217,6 +217,25 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
             Self::search_node_recursive(root, key).map(|result_node| result_node.value())
         })
     }
+    pub fn min_key(&self) -> Option<K> {
+        self.root.as_ref().map(|node| {
+            let mut current = node;
+            while let Some(left) = current.left() {
+                current = left;
+            }
+            current.key().clone()
+        })
+    }
+
+    pub fn max_key(&self) -> Option<K> {
+        self.root.as_ref().map(|node| {
+            let mut current = node;
+            while let Some(right) = current.right() {
+                current = right;
+            }
+            current.key().clone()
+        })
+    }
     ///Removes the node with smallest key in subtree, if exists
     fn take_min_node(subtree: &mut NodePtr<K, V>) -> NodePtr<K, V> {
         if let Some(mut node) = subtree.take() {
