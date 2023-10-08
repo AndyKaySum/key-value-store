@@ -61,3 +61,53 @@ impl<
         result
     }
 }
+
+// Sanity tests, need to check for edge cases
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scan_empty() {
+        let memtable: Memtable<&str, u32> = Memtable::new(10);
+        let result = memtable.scan("a", "c");
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_scan_single() {
+        let mut memtable: Memtable<&str, u32> = Memtable::new(10);
+        memtable.put("a", 1);
+        let result = memtable.scan("a", "d");
+        assert_eq!(result, vec![("a", 1)]);
+    }
+
+    #[test]
+    fn test_scan_multiple() {
+        let mut memtable: Memtable<&str, u32> = Memtable::new(10);
+        memtable.put("a", 1);
+        memtable.put("b", 3);
+        let result = memtable.scan("a", "b");
+        assert_eq!(result, vec![("a", 1), ("b", 3)]);
+    }
+
+    #[test]
+    fn test_scan_order() {
+        let mut memtable: Memtable<&str, u32> = Memtable::new(10);
+        memtable.put("a", 1);
+        memtable.put("b", 3);
+        memtable.put("c", 5);
+        let result = memtable.scan("a", "c");
+        assert_eq!(result, vec![("b", 3), ("c", 5), ("a", 1)]);
+    }
+
+    #[test]
+    fn test_scan_invalid_range() {
+        let mut memtable: Memtable<&str, u32> = Memtable::new(10);
+        memtable.put("a", 1);
+        memtable.put("b", 3);
+        memtable.put("c", 5);
+        let result = memtable.scan("d", "k");
+        assert_eq!(result, vec![]);
+    }
+}
