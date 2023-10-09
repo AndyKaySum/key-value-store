@@ -2,6 +2,7 @@ use crate::avl::{AvlTree, AvlNode};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use crate::sst::SSTable;
 
 #[derive(Debug)]
 pub struct Memtable<K, V> {
@@ -30,13 +31,15 @@ impl<
     pub fn len(&self) -> usize {
         self.tree.len()
     }
+    pub fn num_sst(&self) -> usize {
+        self.num_sst
+    }
     pub fn put(&mut self, key: K, value: V) {
         self.tree.insert(key, value);
 
         // Check if the tree is full
         if self.is_full() {
             // Get a list of all the key-value pairs in the tree
-
             let pairs = self.scan(self.tree.min_key().unwrap(), self.tree.max_key().unwrap());
 
             // Write the key-value pairs to a file in SSTable format
@@ -45,7 +48,7 @@ impl<
             let file = File::create(&path).unwrap();
             let mut writer = BufWriter::new(file);
             for (key, value) in pairs {
-                writeln!(writer, "{}:{}\n", key.to_string(), value.to_string()).unwrap();
+                writeln!(writer, "{}\t{}", key.to_string(), value.to_string()).unwrap();
             }
             writer.flush().unwrap();
 
@@ -129,5 +132,41 @@ mod tests {
         memtable.put("c", 5);
         let result = memtable.scan("d", "k");
         assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_memtable_put_over_capacity() {
+        // Create a new memtable with a capacity of 2
+        let mut memtable: Memtable<&str, u32> = Memtable::new(2, 0);
+
+        // Insert three key-value pairs
+        memtable.put("a", 1);
+        memtable.put("b", 3);
+        memtable.put("c", 5);
+
+        // Check that the first two key-value pairs were flushed to disk
+        assert_eq!(memtable.get("a"), None);
+        assert_eq!(memtable.get("b"), None);
+        assert_eq!(memtable.get("c"), Some(5));
+    }
+
+    #[test]
+    fn test_sst_read() {
+        // Create a new memtable with capacity 2
+        let mut memtable = Memtable::new(2, 0);
+
+        // Insert three key-value pairs
+        memtable.put("a", "1");
+        memtable.put("b", "3");
+        memtable.put("c", "5");
+
+        // Check that the memtable num-sst counter in increased
+        assert_eq!(memtable.num_sst, 1);
+
+        // Check that the first SSTable contains the first two key-value pairs
+        let sstable1_path = format!("memtable_{}.sst", memtable.num_sst - 1);
+        let sstable1 = SSTable::new(&sstable1_path);
+        assert_eq!(sstable1.get("a"), Some("1".to_string()));
+        assert_eq!(sstable1.get("b"), Some("3".to_string()));
     }
 }
