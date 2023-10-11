@@ -1,4 +1,4 @@
-use crate::avl::{AvlTree, AvlNode};
+use crate::avl::{AvlTree};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -70,19 +70,10 @@ impl<
     // with key between key1 and key2 
     pub fn scan(&self, key1: K, key2: K) -> Vec<(K, V)> {
         let mut result = Vec::new();
-        self.inorder_traversal(self.tree.root().as_ref(), &mut result, &key1, &key2);
+        self.tree.traverse_tree_inorder(self.tree.root().as_ref(), &mut result, &key1, &key2);
         result
     }
     
-    fn inorder_traversal(&self, node: Option<&Box<AvlNode<K, V>>>, result: &mut Vec<(K, V)>, key1: &K, key2: &K) {
-        if let Some(node) = node {
-            self.inorder_traversal(node.left().as_ref(), result, key1, key2);
-            if node.key() >= *key1 && node.key() <= *key2 {
-                result.push((node.key().clone(), node.value()));
-            }
-            self.inorder_traversal(node.right().as_ref(), result, key1, key2);
-        }
-    }
 }
 
 // Sanity tests, need to check for edge cases

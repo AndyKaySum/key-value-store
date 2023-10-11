@@ -227,6 +227,16 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
         })
     }
 
+    pub fn traverse_tree_inorder(&self, node: Option<&Box<AvlNode<K, V>>>, result: &mut Vec<(K, V)>, key1: &K, key2: &K) {
+        if let Some(node) = node {
+            self.traverse_tree_inorder(node.left().as_ref(), result, key1, key2);
+            if node.key >= *key1 && node.key <= *key2 {
+                result.push((node.key.clone(), node.value()));
+            }
+            self.traverse_tree_inorder(node.right().as_ref(), result, key1, key2);
+        }
+    }
+
     pub fn max_key(&self) -> Option<K> {
         self.root.as_ref().map(|node| {
             let mut current = node;

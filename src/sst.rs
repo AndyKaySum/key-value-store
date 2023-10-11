@@ -14,6 +14,10 @@ impl SSTable {
     pub fn get(&self, key: &str) -> Option<String> {
         let mut reader = BufReader::new(&self.data_file);
         let mut line = String::new();
+        if reader.seek(SeekFrom::Start(0)).is_err() {
+            println!("Error seeeking to start of SST file: {:?}", self.data_file);
+            return None;
+        }
         reader.seek(SeekFrom::Start(0)).unwrap();
         while reader.read_line(&mut line).unwrap() > 0 {
             let parts: Vec<&str> = line.trim_end().split('\t').collect();
