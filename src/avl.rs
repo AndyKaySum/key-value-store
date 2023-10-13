@@ -31,6 +31,12 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlNode<K, V
     pub fn height(&self) -> usize {
         self.height
     }
+    pub fn left(&self) -> &NodePtr<K, V> {
+        &self.left
+    }
+    pub fn right(&self) -> &NodePtr<K, V> {
+        &self.right
+    }
     fn balance(&self) -> i32 {
         let [mut l_height, mut r_height] = [Self::NONE_HEIGHT; 2];
         if let Some(left) = &self.left {
@@ -142,6 +148,10 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
     pub fn len(&self) -> usize {
         self.len
     }
+    // Returns the root node of the tree
+    pub fn root(&self) -> &NodePtr<K, V> {
+        &self.root
+    }
     ///Insert key-value pair into Avl Subtree using recursion, returns true iff size size increases
     fn insert_recursive(subtree: &mut Box<AvlNode<K, V>>, key: K, value: V) -> bool {
         if subtree.key() == key {
@@ -205,6 +215,35 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
     pub fn search(&self, key: K) -> Option<V> {
         self.root.as_ref().and_then(|root| {
             Self::search_node_recursive(root, key).map(|result_node| result_node.value())
+        })
+    }
+    pub fn min_key(&self) -> Option<K> {
+        self.root.as_ref().map(|node| {
+            let mut current = node;
+            while let Some(left) = current.left() {
+                current = left;
+            }
+            current.key().clone()
+        })
+    }
+
+    pub fn traverse_tree_inorder(&self, node: Option<&Box<AvlNode<K, V>>>, result: &mut Vec<(K, V)>, key1: &K, key2: &K) {
+        if let Some(node) = node {
+            self.traverse_tree_inorder(node.left().as_ref(), result, key1, key2);
+            if node.key >= *key1 && node.key <= *key2 {
+                result.push((node.key.clone(), node.value()));
+            }
+            self.traverse_tree_inorder(node.right().as_ref(), result, key1, key2);
+        }
+    }
+
+    pub fn max_key(&self) -> Option<K> {
+        self.root.as_ref().map(|node| {
+            let mut current = node;
+            while let Some(right) = current.right() {
+                current = right;
+            }
+            current.key().clone()
         })
     }
     ///Removes the node with smallest key in subtree, if exists
