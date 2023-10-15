@@ -1,10 +1,9 @@
 use std::fs::File;
 use std::io::{BufReader, BufRead, SeekFrom, Seek};
-
+#[derive(Debug)]
 pub struct SSTable {
     data_file: File,
 }
-
 impl SSTable {
     pub fn new(path: &str) -> SSTable {
         let data_file = File::open(path).unwrap();
