@@ -13,6 +13,7 @@ pub struct Database<K, V> {
     records: usize,
     num_sst: usize, 
     mem_size: usize, 
+    records_in_memory: usize, 
     ssts: Vec<SSTable>,  
 }
 
@@ -28,7 +29,8 @@ impl<
                 records: 0, 
                 mem_size, 
                 name: name.clone(), 
-                ssts: Vec::new()
+                ssts: Vec::new(), 
+                records_in_memory: 01
 
             }
         }
@@ -38,7 +40,7 @@ impl<
         pub fn put(&mut self, key:K, value: V){
             self.memtable.put(key, value);
         }
-
+       
         pub fn get(&mut self, key:K) -> Option<V> {
             self.memtable.get(key)
         }
@@ -64,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_scan_single() {
-        let mut db: Database<String, u32> = Database::new("test_db".to_string(), 0, 10);
+        let mut db: Database<String, u64> = Database::new("test_db".to_string(), 0, 10);
         db.put("a".to_string(), 1);
         let result = db.scan("a".to_string(), "a".to_string());
         assert_eq!(result, vec![("a".to_string(), 1)]);
@@ -72,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_scan_multiple() {
-        let mut db: Database<u64, u64> = Database::new("test_db".to_string(), 0, 10);
+        let mut db: Database<i64, i64> = Database::new("test_db".to_string(), 0, 10);
         db.put(1, 11);
         db.put(3, 33);
         let result = db.scan(1, 3);

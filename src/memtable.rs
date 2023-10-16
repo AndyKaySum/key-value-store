@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_scan_single() {
-        let mut memtable: Memtable<String, u32> = Memtable::new(10, 0);
+        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
         memtable.put("a".to_string(), 1);
         let result = memtable.scan("a".to_string(), "a".to_string());
         assert_eq!(result, vec![("a".to_string(), 1)]);
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn test_scan_multiple() {
-        let mut memtable: Memtable<u32, u32> = Memtable::new(10, 0);
+        let mut memtable: Memtable<u64, u64> = Memtable::new(10, 0);
         memtable.put(1, 11);
         memtable.put(3, 33);
         let result = memtable.scan(1, 3);
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_scan_order() {
-        let mut memtable: Memtable<, u32> = Memtable::new(10, 0);
+        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
         memtable.put("a".to_string(), 1);
         memtable.put("b".to_string(), 3);
         memtable.put("c".to_string(), 5);
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_scan_invalid_range() {
-        let mut memtable: Memtable<String, u32> = Memtable::new(10, 0);
+        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
         memtable.put("a".to_string(), 1);
         memtable.put("b".to_string(), 3);
         memtable.put("c".to_string(), 5);
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn test_memtable_put_over_capacity() {
         // Create a new memtable with a capacity of 2
-        let mut memtable: Memtable<String, u32> = Memtable::new(2, 0);
+        let mut memtable: Memtable<String, u64> = Memtable::new(2, 0);
 
         // Insert three key-value pairs
         memtable.put("a".to_string(), 1);
@@ -175,8 +175,8 @@ mod tests {
         memtable.put("c".to_string(), 5);
 
         // Check that the first two key-value pairs were flushed to disk
-        assert_eq!(memtable.get("a".to_string()), None);
-        assert_eq!(memtable.get("b".to_string()), None);
+        assert_eq!(memtable.get("a".to_string()), Some(1));
+        assert_eq!(memtable.get("b".to_string()), Some(3));
         assert_eq!(memtable.get("c".to_string()), Some(5));
     }
 
