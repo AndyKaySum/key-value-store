@@ -25,29 +25,8 @@ impl SSTable {
         }
         None
     }
-    // pub fn put(&self, pairs: Vec<(K,V)> ){
-    //     // let pairs = self.scan(self.tree.min_key().unwrap(), self.tree.max_key().unwrap());
-    //     // Write the key-value pairs to a file in SSTable format
-    //     let mut path = PathBuf::new();
-    //     path.push(format!("memtable_{}.sst", ));
-    //     let file = File::create(&path).unwrap();
-    //     let mut writer = BufWriter::new(file);
-    //     for (key, value) in pairs {
-    //         writeln!(writer, "{}\t{}", key.to_string(), value.to_string()).unwrap();
-    //     }
-    //     writer.flush().unwrap();
-
-    //     // Assign a new memtable with the same capacity
-    //     let new_memtable = Memtable::new(self.capacity, self.num_sst + 1);
-    //     std::mem::replace(self, new_memtable);
-         
-
-           
-    // }
-
-
 pub fn put_int(&self, pairs: Vec<(i64, i64)>, sst_num: u64) {
-    let file_path = format!("sst_{}.dat", sst_num); // Replace with your actual file path
+    let file_path = format!("memtable_{}.dat", sst_num); // Replace with your actual file path
     match File::create(&file_path) {
         Ok(mut f) => {
             for &(key, value) in pairs.iter() {
@@ -60,9 +39,6 @@ pub fn put_int(&self, pairs: Vec<(i64, i64)>, sst_num: u64) {
             return;
         }
     };
-}
-pub fn get_int(&self, key: i64) -> Result<Option<i64>> {
-    return self.binary_search(key); 
 }
 pub fn get_int_at_index(&self, sst_num: u64, index: i64) -> io::Result<Option<(i64, i64)>> {
     let file_path = format!("sst_{}.dat", sst_num);
@@ -89,7 +65,7 @@ pub fn get_size(&self, sst_num: u64) -> Result<i64> {
     let num_pairs = file_length / 16;
     Ok(num_pairs as i64)
 }
-pub fn binary_search_range_scan(&self, target_key1: i64, target_key2: i64) -> std::io::Result<Vec<i64>> {
+pub fn binary_search_range_scan(&self, target_key1: i64, target_key2: i64) -> std::io::Result<Vec<(i64, i64)>> {
     let mut start_index = 0;
     let mut end_index = self.get_size(0).unwrap() -1;
     let mut vec = Vec::new();
@@ -102,7 +78,7 @@ pub fn binary_search_range_scan(&self, target_key1: i64, target_key2: i64) -> st
         match result {
             Some((key, value)) => {
                 if key >= target_key1 && key <= target_key2 {
-                    vec.push(value);
+                    vec.push((key, value));
 
                     let mut left_index = mid_index  - 1;
                     let mut right_index = mid_index + 1;
@@ -110,7 +86,7 @@ pub fn binary_search_range_scan(&self, target_key1: i64, target_key2: i64) -> st
                     while left_index >= start_index && left_index < mid_index {
                         if let Some((key, value)) = self.get_int_at_index(0, left_index)? {
                             if key >= target_key1 {
-                                vec_left.push(value);
+                                vec_left.push((key, value));
                             } else {
                                 break;
                             }
@@ -121,7 +97,7 @@ pub fn binary_search_range_scan(&self, target_key1: i64, target_key2: i64) -> st
                     while right_index <= end_index {
                         if let Some((key, value)) = self.get_int_at_index(0, right_index)? {
                             if key <= target_key2 {
-                                vec_right.push(value);
+                                vec_right.push((key, value));
                             } else {
                                 break;
                             }
@@ -155,7 +131,7 @@ pub fn binary_search_range_scan(&self, target_key1: i64, target_key2: i64) -> st
     Ok(vec)
 }
 
-pub fn binary_search(&self,target_key:i64) -> std::io::Result<Option<i64>> {
+pub fn binary_search(&self,target_key:i64) -> std::io::Result<Option<(i64, i64)>> {
     let mut start_index = 0;
     let mut end_index = self.get_size(0).unwrap();
     while start_index <= end_index {
@@ -166,7 +142,7 @@ pub fn binary_search(&self,target_key:i64) -> std::io::Result<Option<i64>> {
             Some((key, value)) => {
                 if key == target_key {
                     // Found
-                    return Ok(Some(value))
+                    return Ok(Some((key, value)))
                 } else if key < target_key {
                     start_index = mid_index + 1;
                 } else {
@@ -205,8 +181,8 @@ mod tests {
         // let result = db.scan("a".to_string(), "c".to_string());
         assert_eq!(sstable1.get_int_at_index(0,2).unwrap().unwrap(),(5, 3));
         assert_eq!(sstable1.get_size(0).unwrap(),4);
-        assert_eq!(sstable1.get_int(1).unwrap(), Some(2));
-        assert_eq!(sstable1.binary_search_range_scan(1,7).unwrap(), vec![2,4,3,8])
+        assert_eq!(sstable1.binary_search(1).unwrap(), Some((1, 2)));
+        assert_eq!(sstable1.binary_search_range_scan(1,7).unwrap(), vec![(1, 2), (3, 4), (5, 3), (7,8)])
     }
 
 }

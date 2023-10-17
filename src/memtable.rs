@@ -64,11 +64,9 @@ impl<
         let key_clone = key.clone();
         match self.tree.search(key_clone) {
             Some(value) => {
-                // Do something if you have a value
                 return Some(value)
             },
             None => {
-                // Do something if you have no value
                 for i in 0..self.num_sst + 1 {
                     let sstable1_path = format!("memtable_{}.sst", i);
                     let sstable1 = SSTable::new(&sstable1_path);
@@ -84,7 +82,7 @@ impl<
                         None => {}
                     }
                 }
-                None // Return None if the loop completes without finding a value
+                None 
                 
             },
         }
