@@ -5,27 +5,24 @@ use std::path::PathBuf;
 use crate::sst::SSTable;
 use std::str::FromStr;
 #[derive(Debug)]
-pub struct Memtable<K, V> {
-    tree: AvlTree<K, V>,
+pub struct Memtable{
+    tree: AvlTree<i64, i64>,
     capacity: usize,
     num_sst: usize,
 }
 
-impl<
-        K: Clone + std::cmp::PartialOrd + std::fmt::Display + std::default::Default + std::str::FromStr,
-        V: Clone + std::default::Default + std::fmt::Display + std::str::FromStr,
-    > Memtable<K, V>
+impl Memtable
 {
     ///Initializes an empty Memtable with a given capacity
-    pub fn new(capacity: usize, num_sst: usize) -> Memtable<K, V> {
+    pub fn new(capacity: usize, num_sst: usize) -> Memtable {
         Memtable {
             tree: AvlTree::new(),
             capacity,
             num_sst,
         }
     }
-    pub fn parse_value(&self, input: &str) -> Result<V, <V as FromStr>::Err> {
-        input.parse::<V>()
+    pub fn parse_value(&self, input: &str) -> Result<i64, <i64 as FromStr>::Err> {
+        input.parse::<i64>()
     }
 
     pub fn capacity(&self) -> usize {
@@ -37,7 +34,7 @@ impl<
     pub fn num_sst(&self) -> usize {
         self.num_sst
     }
-    pub fn put(&mut self, key: K, value: V) {
+    pub fn put(&mut self, key: i64, value: i64) {
         self.tree.insert(key, value);
 
         // Check if the tree is full
@@ -60,7 +57,7 @@ impl<
             std::mem::replace(self, new_memtable);
         }
     }
-    pub fn get(&self, key: K) -> Option<V> {
+    pub fn get(&self, key: i64) -> Option<i64> {
         let key_clone = key.clone();
         match self.tree.search(key_clone) {
             Some(value) => {
@@ -88,7 +85,7 @@ impl<
         }
     }
     
-    pub fn pop(&mut self, key: K) -> Option<V> {
+    pub fn pop(&mut self, key: i64) -> Option<i64> {
         self.tree.delete(key)
     }
     pub fn is_full(&self) -> bool {
@@ -96,13 +93,13 @@ impl<
     }
     // Performs inorder traversal of the tree and returns a vector of all the key-value pairs 
     // with key between key1 and key2 
-    pub fn scan(&self, key1: K, key2: K) -> Vec<(K, V)> {
+    pub fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)> {
         let mut result = Vec::new();
         self.inorder_traversal(self.tree.root().as_ref(), &mut result, &key1, &key2);
         result
     }
     
-    fn inorder_traversal(&self, node: Option<&Box<AvlNode<K, V>>>, result: &mut Vec<(K, V)>, key1: &K, key2: &K) {
+    fn inorder_traversal(&self, node: Option<&Box<AvlNode<i64, i64>>>, result: &mut Vec<(i64, i64)>, key1: &i64, key2: &i64) {
         if let Some(node) = node {
             self.inorder_traversal(node.left().as_ref(), result, key1, key2);
             if node.key() >= *key1 && node.key() <= *key2 {
@@ -120,22 +117,22 @@ mod tests {
 
     #[test]
     fn test_scan_empty() {
-        let memtable: Memtable<String, String> = Memtable::new(10, 0);
-        let result = memtable.scan("a".to_string(), "c".to_string());
+        let memtable: Memtable = Memtable::new(10, 0);
+        let result = memtable.scan(1, 3);
         assert_eq!(result, vec![]);
     }
 
     #[test]
     fn test_scan_single() {
-        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
-        memtable.put("a".to_string(), 1);
-        let result = memtable.scan("a".to_string(), "a".to_string());
-        assert_eq!(result, vec![("a".to_string(), 1)]);
+        let mut memtable: Memtable = Memtable::new(10, 0);
+        memtable.put(1, 1);
+        let result = memtable.scan(1, 1);
+        assert_eq!(result, vec![(1, 1)]);
     }
 
     #[test]
     fn test_scan_multiple() {
-        let mut memtable: Memtable<u64, u64> = Memtable::new(10, 0);
+        let mut memtable: Memtable = Memtable::new(10, 0);
         memtable.put(1, 11);
         memtable.put(3, 33);
         let result = memtable.scan(1, 3);
@@ -144,38 +141,38 @@ mod tests {
 
     #[test]
     fn test_scan_order() {
-        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
-        memtable.put("a".to_string(), 1);
-        memtable.put("b".to_string(), 3);
-        memtable.put("c".to_string(), 5);
-        let result = memtable.scan("a".to_string(), "c".to_string());
-        assert_eq!(result, vec![("a".to_string(), 1), ("b".to_string(), 3), ("c".to_string(), 5)]);
+        let mut memtable: Memtable = Memtable::new(10, 0);
+        memtable.put(1, 1);
+        memtable.put(2, 3);
+        memtable.put(3, 5);
+        let result = memtable.scan(1, 3);
+        assert_eq!(result, vec![(1, 1), (2, 3), (3, 5)]);
     }
 
     #[test]
     fn test_scan_invalid_range() {
-        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
-        memtable.put("a".to_string(), 1);
-        memtable.put("b".to_string(), 3);
-        memtable.put("c".to_string(), 5);
-        let result = memtable.scan("d".to_string(), "k".to_string());
+        let mut memtable: Memtable = Memtable::new(10, 0);
+        memtable.put(1, 1);
+        memtable.put(2, 3);
+        memtable.put(3, 5);
+        let result = memtable.scan(4, 11);
         assert_eq!(result, vec![]);
     }
 
     #[test]
     fn test_memtable_put_over_capacity() {
         // Create a new memtable with a capacity of 2
-        let mut memtable: Memtable<String, u64> = Memtable::new(2, 0);
+        let mut memtable: Memtable = Memtable::new(2, 0);
 
         // Insert three key-value pairs
-        memtable.put("a".to_string(), 1);
-        memtable.put("b".to_string(), 3);
-        memtable.put("c".to_string(), 5);
+        memtable.put(1, 1);
+        memtable.put(2, 3);
+        memtable.put(3, 5);
 
         // Check that the first two key-value pairs were flushed to disk
-        assert_eq!(memtable.get("a".to_string()), Some(1));
-        assert_eq!(memtable.get("b".to_string()), Some(3));
-        assert_eq!(memtable.get("c".to_string()), Some(5));
+        assert_eq!(memtable.get(1), Some(1));
+        assert_eq!(memtable.get(2), Some(3));
+        assert_eq!(memtable.get(3), Some(5));
     }
 
     #[test]
