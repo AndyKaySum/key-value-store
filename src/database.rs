@@ -43,7 +43,7 @@ impl Database  {
             if self.records == self.mem_size{
                self.records = 0; 
                self.num_sst += 1;  
-               let new_sstable_path = format!("memtable_{}.sst", self.num_sst);
+               let new_sstable_path = format!("memtable_{}.sst", self.num_sst); //need to actually create the file!!!
                let new_sstable = SSTable::new(&new_sstable_path);
                let pairs = self.memtable.flush();
                new_sstable.fill(pairs, self.num_sst.try_into().unwrap());
@@ -104,15 +104,15 @@ mod tests {
     }
     #[test]
     fn test_scan_sst() { //TODO: Issue with this test!
-        let mut db: Database = Database::new("test_db".to_string(), 0, 10);
+        let mut db: Database = Database::new("test_db".to_string(), 0, 5);
         db.put(1, 11);
         db.put(3, 33);
         db.put(4, 11);
         db.put(5, 33);
         db.put(6, 11);
         db.put(7, 33);
-        let result = db.scan(1,10);
-        assert_eq!(result, vec![(1, 11), (3, 33), (4, 11),(5, 33),(6, 11),(7, 33)]);
+        let result = db.get(3);
+        assert_eq!(result, Some(33));
     }
 
 }

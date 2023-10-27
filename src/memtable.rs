@@ -39,6 +39,7 @@ impl Memtable
 
         // Check if the tree is full
         if self.is_full() {
+            println!("SHOULD NOT BE SEEING THIS");
             println!("flushing memtable to SST:{}!", self.num_sst); 
             // Get a list of all the key-value pairs in the tree
             let pairs = self.scan(self.tree.min_key().unwrap(), self.tree.max_key().unwrap());
@@ -66,7 +67,7 @@ impl Memtable
             },
             None => {
                 for i in 0..self.num_sst + 1 {
-                    let sstable1_path = format!("memtable_{}.sst", i);
+                    let sstable1_path = format!("memtable_{}.sst", 0);
                     let sstable1 = SSTable::new(&sstable1_path);
                     match sstable1.binary_search(key) {
                         Ok(Some(sst_value)) => {
