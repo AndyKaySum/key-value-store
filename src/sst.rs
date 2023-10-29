@@ -168,7 +168,11 @@ mod tests {
 
     #[test]
     fn test_put_int() {
-        let sstable1_path = format!("memtable_{}.sst", 0);
+        let sstable1_path = format!("memtable_{}.sst", 4);
+        match File::create(&sstable1_path) {
+            Ok(_) => println!("File created successfully"),
+            Err(e) => panic!("Failed to create file: {}", e),
+        }
         let sstable1 = SSTable::new(&sstable1_path);
         let vec = vec![(1, 2), (3, 4), (5, 3), (7,8)];
         let vec2 = vec![(1, 2)];
