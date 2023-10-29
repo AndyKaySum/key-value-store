@@ -35,29 +35,30 @@ impl Memtable
         self.num_sst
     }
     pub fn put(&mut self, key: i64, value: i64) {
+        assert!(self.is_full() != true, "Tree is full in put when its not supposed to be");
         self.tree.insert(key, value);
 
         // Check if the tree is full
-        if self.is_full() {
-            println!("SHOULD NOT BE SEEING THIS");
-            println!("flushing memtable to SST:{}!", self.num_sst); 
-            // Get a list of all the key-value pairs in the tree
-            let pairs = self.scan(self.tree.min_key().unwrap(), self.tree.max_key().unwrap());
+        // if self.is_full() {
+        //     println!("SHOULD NOT BE SEEING THIS");
+        //     println!("flushing memtable to SST:{}!", self.num_sst); 
+        //     // Get a list of all the key-value pairs in the tree
+        //     let pairs = self.scan(self.tree.min_key().unwrap(), self.tree.max_key().unwrap());
 
-            // Write the key-value pairs to a file in SSTable format
-            let mut path = PathBuf::new();
-            path.push(format!("memtable_{}.sst", self.num_sst));
-            let file = File::create(&path).unwrap();
-            let mut writer = BufWriter::new(file);
-            for (key, value) in pairs {
-                writeln!(writer, "{}\t{}", key.to_string(), value.to_string()).unwrap();
-            }
-            writer.flush().unwrap();
+        //     // Write the key-value pairs to a file in SSTable format
+        //     let mut path = PathBuf::new();
+        //     path.push(format!("memtable_{}.sst", self.num_sst));
+        //     let file = File::create(&path).unwrap();
+        //     let mut writer = BufWriter::new(file);
+        //     for (key, value) in pairs {
+        //         writeln!(writer, "{}\t{}", key.to_string(), value.to_string()).unwrap();
+        //     }
+        //     writer.flush().unwrap();
 
-            // Assign a new memtable with the same capacity
-            let new_memtable = Memtable::new(self.capacity, self.num_sst + 1);
-            std::mem::replace(self, new_memtable);
-        }
+        //     // Assign a new memtable with the same capacity
+        //     let new_memtable = Memtable::new(self.capacity, self.num_sst + 1);
+        //     std::mem::replace(self, new_memtable);
+        // }
     }
     pub fn get(&self, key: i64) -> Option<i64> {
         let key_clone = key.clone();

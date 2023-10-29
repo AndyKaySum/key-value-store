@@ -168,13 +168,11 @@ mod tests {
 
     #[test]
     fn test_put_int() {
-        // let mut sst: SSTable<i64, i64> = SSTable::new("test_db".to_string(), 0, 10);
         let sstable1_path = format!("memtable_{}.sst", 0);
         let sstable1 = SSTable::new(&sstable1_path);
         let vec = vec![(1, 2), (3, 4), (5, 3), (7,8)];
         let vec2 = vec![(1, 2)];
         sstable1.fill(vec, 0); 
-        // let result = db.scan("a".to_string(), "c".to_string());
         assert_eq!(sstable1.get_int_at_index(0,2).unwrap().unwrap(),(5, 3));
         assert_eq!(sstable1.get_size(0).unwrap(),4);
         assert_eq!(sstable1.binary_search(1).unwrap(), Some((1, 2)));
