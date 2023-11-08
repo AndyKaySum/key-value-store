@@ -1,11 +1,10 @@
-pub mod merge_k_lists{
-    use std::collections::BinaryHeap;
+pub mod merge_k_lists {
     use std::cmp::Ordering;
-    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
 
     #[derive(Eq, PartialEq)]
     pub struct Node {
-        key:i64, 
+        key: i64,
         val: i64,
         list_idx: usize,
         elem_idx: usize,
@@ -29,11 +28,22 @@ pub mod merge_k_lists{
 
         for (list_idx, list) in lists.iter().enumerate() {
             if !list.is_empty() {
-                heap.push(Node { key: list[0].0, val: list[0].1, list_idx, elem_idx: 0 });
+                heap.push(Node {
+                    key: list[0].0,
+                    val: list[0].1,
+                    list_idx,
+                    elem_idx: 0,
+                });
             }
         }
 
-        while let Some(Node { key, val, list_idx, elem_idx }) = heap.pop() {
+        while let Some(Node {
+            key,
+            val,
+            list_idx,
+            elem_idx,
+        }) = heap.pop()
+        {
             result.push((key, val));
 
             if elem_idx + 1 < lists[list_idx].len() {

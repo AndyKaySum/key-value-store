@@ -1,7 +1,7 @@
 type NodePtr<K, V> = Option<Box<AvlNode<K, V>>>;
 
 #[derive(Debug, Default, PartialEq)]
-pub struct AvlNode<K, V> {
+struct AvlNode<K, V> {
     key: K,
     value: V,
     height: usize,
@@ -148,10 +148,6 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
     pub fn len(&self) -> usize {
         self.len
     }
-    // Returns the root node of the tree
-    pub fn root(&self) -> &NodePtr<K, V> {
-        &self.root
-    }
     ///Insert key-value pair into Avl Subtree using recursion, returns true iff size size increases
     fn insert_recursive(subtree: &mut Box<AvlNode<K, V>>, key: K, value: V) -> bool {
         if subtree.key() == key {
@@ -217,40 +213,30 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
             Self::search_node_recursive(root, key).map(|result_node| result_node.value())
         })
     }
-    pub fn min_key(&self) -> Option<K> {
-        self.root.as_ref().map(|node| {
-            let mut current = node;
-            while let Some(left) = current.left() {
-                current = left;
-            }
-            current.key().clone()
-        })
-    }
+    // pub fn min_key(&self) -> Option<K> {
+    //     self.root.as_ref().map(|node| {
+    //         let mut current = node;
+    //         while let Some(left) = current.left() {
+    //             current = left;
+    //         }
+    //         current.key().clone()
+    //     })
+    // }
 
-    pub fn traverse_tree_inorder(&self, node: Option<&Box<AvlNode<K, V>>>, result: &mut Vec<(K, V)>, key1: &K, key2: &K) {
-        if let Some(node) = node {
-            self.traverse_tree_inorder(node.left().as_ref(), result, key1, key2);
-            if node.key >= *key1 && node.key <= *key2 {
-                result.push((node.key.clone(), node.value()));
-            }
-            self.traverse_tree_inorder(node.right().as_ref(), result, key1, key2);
-        }
-    }
-
-    pub fn max_key(&self) -> Option<K> {
-        self.root.as_ref().map(|node| {
-            let mut current = node;
-            while let Some(right) = current.right() {
-                current = right;
-            }
-            current.key().clone()
-        })
-    }
+    // pub fn max_key(&self) -> Option<K> {
+    //     self.root.as_ref().map(|node| {
+    //         let mut current = node;
+    //         while let Some(right) = current.right() {
+    //             current = right;
+    //         }
+    //         current.key().clone()
+    //     })
+    // }
     ///Removes the node with smallest key in subtree, if exists
-    fn take_min_node(subtree: &mut NodePtr<K, V>) -> NodePtr<K, V> {
+    fn _take_min_node(subtree: &mut NodePtr<K, V>) -> NodePtr<K, V> {
         if let Some(mut node) = subtree.take() {
             //Recurse left side
-            if let Some(smaller_subtree) = Self::take_min_node(&mut node.left) {
+            if let Some(smaller_subtree) = Self::_take_min_node(&mut node.left) {
                 //Took the smallest from below, update this node and put it back in the tree
                 node.rebalance();
                 *subtree = Some(node);
@@ -266,7 +252,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
     }
     ///Deletes node with matching key recursively, returns (replacement node, removed node).
     /// * Replacement node - new head of subtree
-    fn delete_node_recursive(
+    fn _delete_node_recursive(
         subtree: &mut NodePtr<K, V>,
         key: K,
     ) -> (NodePtr<K, V>, NodePtr<K, V>) {
@@ -278,7 +264,7 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
                     &mut root.right
                 };
 
-                let (replacement, removed) = Self::delete_node_recursive(replacement_subtree, key);
+                let (replacement, removed) = Self::_delete_node_recursive(replacement_subtree, key);
                 *replacement_subtree = replacement;
 
                 if removed.is_some() {
@@ -293,8 +279,8 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
                     (None, Some(root))
                 } else if root.left.is_some() && root.right.is_some() {
                     //case 2: 2 children
-                    let mut replacement_node = Self::take_min_node(&mut root.right).unwrap(); //should be able to safely unwrap here
-                                                                                              //replacement node guaranteed to not have left children, otherwise that child would be the replacement
+                    let mut replacement_node = Self::_take_min_node(&mut root.right).unwrap(); //should be able to safely unwrap here
+                                                                                               //replacement node guaranteed to not have left children, otherwise that child would be the replacement
                     replacement_node.left = root.left.take();
                     replacement_node.rebalance();
                     (Some(replacement_node), Some(root))
@@ -315,8 +301,8 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
         }
     }
     ///Deletes node from tree, returns deleted node
-    fn delete_node(&mut self, key: K) -> NodePtr<K, V> {
-        let (new_root, removed_node) = Self::delete_node_recursive(&mut self.root, key);
+    fn _delete_node(&mut self, key: K) -> NodePtr<K, V> {
+        let (new_root, removed_node) = Self::_delete_node_recursive(&mut self.root, key);
         if removed_node.is_some() {
             self.len -= 1;
         }
@@ -324,8 +310,25 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
         removed_node
     }
     ///Deletes node from tree, returns deleted value
-    pub fn delete(&mut self, key: K) -> Option<V> {
-        self.delete_node(key).map(|node| node.value())
+    pub fn _delete(&mut self, key: K) -> Option<V> {
+        self._delete_node(key).map(|node| node.value())
+    }
+    fn for_each_recursive(node: Option<&AvlNode<K, V>>, callback: &mut dyn FnMut(&K, &V)) {
+        if let Some(node) = node {
+            Self::for_each_recursive(node.left().as_deref(), callback);
+            callback(&node.key, &node.value);
+            Self::for_each_recursive(node.right().as_deref(), callback);
+        }
+    }
+    pub fn for_each(&self, callback: &mut dyn FnMut(&K, &V)) {
+        Self::for_each_recursive(self.root.as_deref(), callback);
+    }
+    pub fn for_each_in_range(&self, key1: &K, key2: &K, callback: &mut dyn FnMut(&K, &V)) {
+        Self::for_each_recursive(self.root.as_deref(), &mut |key, value| {
+            if key >= key1 && key <= key2 {
+                callback(key, value);
+            }
+        });
     }
 }
 
@@ -482,7 +485,7 @@ mod tests {
     #[test]
     fn test_take_min() {
         let mut tree = get_big_balanced_tree();
-        let min = AvlTree::take_min_node(&mut tree.root).unwrap();
+        let min = AvlTree::_take_min_node(&mut tree.root).unwrap();
         assert_eq!(min.key, "a");
     }
 
@@ -530,7 +533,7 @@ mod tests {
         };
 
         let mut tree = get_big_balanced_tree();
-        let removed = tree.delete("a");
+        let removed = tree._delete("a");
         assert_eq!(tree, removed_tree);
         assert_eq!(removed, Some(1));
     }
@@ -555,7 +558,7 @@ mod tests {
         };
 
         let mut tree = get_balanced_tree();
-        let removed = tree.delete("b");
+        let removed = tree._delete("b");
         assert_eq!(tree, removed_tree);
         assert_eq!(removed, Some(2))
     }
@@ -563,7 +566,7 @@ mod tests {
     #[test]
     fn test_delete_non_key() {
         let mut tree = get_big_balanced_tree();
-        let removed = tree.delete("x");
+        let removed = tree._delete("x");
         assert_eq!(tree, get_big_balanced_tree());
         assert_eq!(removed, None)
     }
