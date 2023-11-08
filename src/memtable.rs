@@ -1,4 +1,4 @@
-use crate::avl::{AvlTree, AvlNode};
+use crate::avl::{AvlTree};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -94,7 +94,7 @@ impl Memtable
     // with key between key1 and key2 
     pub fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)> {
         let mut result = Vec::new();
-        self.inorder_traversal(self.tree.root().as_ref(), &mut result, &key1, &key2);
+        self.tree.traverse_tree_inorder(self.tree.root().as_ref(), &mut result, &key1, &key2);
         result
     }
 
@@ -103,7 +103,7 @@ impl Memtable
         self.inorder_traversal(self.tree.root().as_ref(), &mut result, &(self.tree.min_key().unwrap()), &(self.tree.max_key().unwrap()));
         result
     }
-    
+
     fn inorder_traversal(&self, node: Option<&Box<AvlNode<i64, i64>>>, result: &mut Vec<(i64, i64)>, key1: &i64, key2: &i64) {
         if let Some(node) = node {
             self.inorder_traversal(node.left().as_ref(), result, key1, key2);
