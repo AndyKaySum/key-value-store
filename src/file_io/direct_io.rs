@@ -40,27 +40,27 @@ pub fn create(path: &str) -> io::Result<File> {
         .read(true)
         .write(true)
         .create(true)
-        .open(path.clone())
+        .open(path)
 }
 
 ///Opens file with read and write permissions using direct I/O
 pub fn open(path: &str) -> io::Result<File> {
-    open_options().read(true).write(true).open(path.clone())
+    open_options().read(true).write(true).open(path)
 }
 
 ///Opens file with read only permissions
 pub fn open_read(path: &str) -> io::Result<File> {
-    open_options().read(true).open(path.clone())
+    open_options().read(true).open(path)
 }
 
 ///Opens file write only permissions using direct I/O
 pub fn open_write(path: &str) -> io::Result<File> {
-    open_options().write(true).open(path.clone())
+    open_options().write(true).open(path)
 }
 
 ///Opens file append only permissions  using direct I/O
 pub fn open_append(path: &str) -> io::Result<File> {
-    open_options().append(true).open(path.clone())
+    open_options().append(true).open(path)
 }
 
 pub fn path_exists(path: &str) -> bool {
