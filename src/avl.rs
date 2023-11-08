@@ -333,10 +333,10 @@ impl<K: Clone + std::cmp::PartialOrd + std::fmt::Display, V: Clone> AvlTree<K, V
 mod tests {
     use super::*;
 
-    fn get_balanced_tree() -> AvlTree<&'static str, u32> {
-        AvlTree::<&str, u32> {
+    fn get_balanced_tree() -> AvlTree<&'static str, u64> {
+        AvlTree::<&str, u64> {
             len: 3,
-            root: Some(Box::new(AvlNode::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u64> {
                 key: "b",
                 value: 2,
                 height: 1,
@@ -357,10 +357,10 @@ mod tests {
             })),
         }
     }
-    fn get_big_balanced_tree() -> AvlTree<&'static str, u32> {
-        AvlTree::<&str, u32> {
+    fn get_big_balanced_tree() -> AvlTree<&'static str, u64> {
+        AvlTree::<&str, u64> {
             len: 6,
-            root: Some(Box::new(AvlNode::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u64> {
                 key: "d",
                 value: 4,
                 height: 2,
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_insert_size() {
-        let mut tree = AvlTree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u64>::new();
         tree.insert("a", 1);
         tree.insert("c", 3);
         tree.insert("b", 2);
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_rotation_left() {
-        let mut tree = AvlTree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u64>::new();
         //forced a left rotation with insertion order
         tree.insert("a", 1);
         tree.insert("b", 2);
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn test_rotation_right() {
-        let mut tree = AvlTree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u64>::new();
         //forced a right rotation with insertion order
         tree.insert("c", 3);
         tree.insert("b", 2);
@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_rotation_left_right() {
-        let mut tree = AvlTree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u64>::new();
         //forced a left-right rotation with insertion order
         tree.insert("c", 3);
         tree.insert("a", 1);
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_rotation_right_left() {
-        let mut tree = AvlTree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u64>::new();
         //forced a right-left rotation with insertion order
         tree.insert("c", 3);
         tree.insert("a", 1);
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_rotation_big_tree() {
-        let mut tree = AvlTree::<&str, u32>::new();
+        let mut tree = AvlTree::<&str, u64>::new();
         //forced a right-left rotation with insertion order
         tree.insert("c", 3);
         tree.insert("a", 1);
@@ -494,9 +494,9 @@ mod tests {
 
     #[test]
     fn test_delete() {
-        let removed_tree = AvlTree::<&str, u32> {
+        let removed_tree = AvlTree::<&str, u64> {
             len: 5,
-            root: Some(Box::new(AvlNode::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u64> {
                 key: "d",
                 value: 4,
                 height: 2,
@@ -537,9 +537,9 @@ mod tests {
 
     #[test]
     fn test_delete_root() {
-        let removed_tree = AvlTree::<&str, u32> {
+        let removed_tree = AvlTree::<&str, u64> {
             len: 2,
-            root: Some(Box::new(AvlNode::<&str, u32> {
+            root: Some(Box::new(AvlNode::<&str, u64> {
                 key: "c",
                 value: 3,
                 height: 1,

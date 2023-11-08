@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use crate::sst::SSTable;
-
+use std::str::FromStr;
 #[derive(Debug)]
 pub struct Memtable<K, V> {
     tree: AvlTree<K, V>,
@@ -12,8 +12,8 @@ pub struct Memtable<K, V> {
 }
 
 impl<
-        K: Clone + std::cmp::PartialOrd + std::fmt::Display + std::default::Default,
-        V: Clone + std::default::Default + std::fmt::Display,
+        K: Clone + std::cmp::PartialOrd + std::fmt::Display + std::default::Default + std::str::FromStr,
+        V: Clone + std::default::Default + std::fmt::Display + std::str::FromStr,
     > Memtable<K, V>
 {
     ///Initializes an empty Memtable with a given capacity
@@ -23,6 +23,9 @@ impl<
             capacity,
             num_sst,
         }
+    }
+    pub fn parse_value(&self, input: &str) -> Result<V, <V as FromStr>::Err> {
+        input.parse::<V>()
     }
 
     pub fn capacity(&self) -> usize {
@@ -58,8 +61,33 @@ impl<
         }
     }
     pub fn get(&self, key: K) -> Option<V> {
-        self.tree.search(key)
+        let key_clone = key.clone();
+        match self.tree.search(key_clone) {
+            Some(value) => {
+                return Some(value)
+            },
+            None => {
+                for i in 0..self.num_sst + 1 {
+                    let sstable1_path = format!("memtable_{}.sst", i);
+                    let sstable1 = SSTable::new(&sstable1_path);
+                    match sstable1.get(&key.to_string()) {
+                        Some(sst_value) => {
+                            match self.parse_value(&sst_value) {
+                                Ok(parsed_value) => return Some(parsed_value),
+                                Err(_) => {
+                                    return None;
+                                }
+                            }
+                        },
+                        None => {}
+                    }
+                }
+                None 
+                
+            },
+        }
     }
+    
     pub fn pop(&mut self, key: K) -> Option<V> {
         self.tree.delete(key)
     }
@@ -83,81 +111,87 @@ mod tests {
 
     #[test]
     fn test_scan_empty() {
-        let memtable: Memtable<&str, u32> = Memtable::new(10, 0);
-        let result = memtable.scan("a", "c");
+        let memtable: Memtable<String, String> = Memtable::new(10, 0);
+        let result = memtable.scan("a".to_string(), "c".to_string());
         assert_eq!(result, vec![]);
     }
 
     #[test]
     fn test_scan_single() {
-        let mut memtable: Memtable<&str, u32> = Memtable::new(10, 0);
-        memtable.put("a", 1);
-        let result = memtable.scan("a", "d");
-        assert_eq!(result, vec![("a", 1)]);
+        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
+        memtable.put("a".to_string(), 1);
+        let result = memtable.scan("a".to_string(), "a".to_string());
+        assert_eq!(result, vec![("a".to_string(), 1)]);
     }
 
     #[test]
     fn test_scan_multiple() {
-        let mut memtable: Memtable<&str, u32> = Memtable::new(10, 0);
-        memtable.put("a", 1);
-        memtable.put("b", 3);
-        let result = memtable.scan("a", "b");
-        assert_eq!(result, vec![("a", 1), ("b", 3)]);
+        let mut memtable: Memtable<u64, u64> = Memtable::new(10, 0);
+        memtable.put(1, 11);
+        memtable.put(3, 33);
+        let result = memtable.scan(1, 3);
+        assert_eq!(result, vec![(1, 11), (3, 33)]);
     }
 
     #[test]
     fn test_scan_order() {
-        let mut memtable: Memtable<&str, u32> = Memtable::new(10, 0);
-        memtable.put("a", 1);
-        memtable.put("b", 3);
-        memtable.put("c", 5);
-        let result = memtable.scan("a", "c");
-        assert_eq!(result, vec![("a", 1), ("b", 3), ("c", 5)]);
+        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
+        memtable.put("a".to_string(), 1);
+        memtable.put("b".to_string(), 3);
+        memtable.put("c".to_string(), 5);
+        let result = memtable.scan("a".to_string(), "c".to_string());
+        assert_eq!(result, vec![("a".to_string(), 1), ("b".to_string(), 3), ("c".to_string(), 5)]);
     }
 
     #[test]
     fn test_scan_invalid_range() {
-        let mut memtable: Memtable<&str, u32> = Memtable::new(10, 0);
-        memtable.put("a", 1);
-        memtable.put("b", 3);
-        memtable.put("c", 5);
-        let result = memtable.scan("d", "k");
+        let mut memtable: Memtable<String, u64> = Memtable::new(10, 0);
+        memtable.put("a".to_string(), 1);
+        memtable.put("b".to_string(), 3);
+        memtable.put("c".to_string(), 5);
+        let result = memtable.scan("d".to_string(), "k".to_string());
         assert_eq!(result, vec![]);
     }
 
     #[test]
     fn test_memtable_put_over_capacity() {
         // Create a new memtable with a capacity of 2
-        let mut memtable: Memtable<&str, u32> = Memtable::new(2, 0);
+        let mut memtable: Memtable<String, u64> = Memtable::new(2, 0);
 
         // Insert three key-value pairs
-        memtable.put("a", 1);
-        memtable.put("b", 3);
-        memtable.put("c", 5);
+        memtable.put("a".to_string(), 1);
+        memtable.put("b".to_string(), 3);
+        memtable.put("c".to_string(), 5);
 
         // Check that the first two key-value pairs were flushed to disk
-        assert_eq!(memtable.get("a"), None);
-        assert_eq!(memtable.get("b"), None);
-        assert_eq!(memtable.get("c"), Some(5));
+        assert_eq!(memtable.get("a".to_string()), Some(1));
+        assert_eq!(memtable.get("b".to_string()), Some(3));
+        assert_eq!(memtable.get("c".to_string()), Some(5));
     }
 
     #[test]
     fn test_sst_read() {
         // Create a new memtable with capacity 2
-        let mut memtable = Memtable::new(2, 0);
+        let mut memtable = Memtable::new(3, 0);
 
         // Insert three key-value pairs
-        memtable.put("a", "1");
-        memtable.put("b", "3");
-        memtable.put("c", "5");
+        memtable.put(1, 11);
+        memtable.put(2, 22);
+        memtable.put(3,33);
+        memtable.put(4,44);
+        memtable.put(5,55);
+        memtable.put(6, 66);
+        memtable.put(7, 77);
+        memtable.put(8,88);
+        memtable.put(9,99);
+
 
         // Check that the memtable num-sst counter in increased
-        assert_eq!(memtable.num_sst, 1);
+        assert_eq!(memtable.num_sst, 3);
 
         // Check that the first SSTable contains the first two key-value pairs
-        let sstable1_path = format!("memtable_{}.sst", memtable.num_sst - 1);
-        let sstable1 = SSTable::new(&sstable1_path);
-        assert_eq!(sstable1.get("a"), Some("1".to_string()));
-        assert_eq!(sstable1.get("b"), Some("3".to_string()));
+      
+        assert_eq!(memtable.get(1), Some(11));
+        assert_eq!(memtable.get(9), Some(99));
     }
 }
