@@ -96,7 +96,6 @@ impl SortedStringTable for Sst {
             //check if we need to read in a new page
             if middle_page_index != curr_page_index {
                 curr_page_index = middle_page_index;
-                //curr_page_entries = deserialize_page(&mut file, middle_page_index)?; //TODO: deserializing a page is overkill, only need one entry to be deserialized
                 let bp = buffer_pool.as_deref_mut(); //NOTE: watch out for this, not quite sure if it will cause bugs, shouldn't though
                 curr_page = get_page(db_name, level, run, middle_page_index, bp)?;
             };
@@ -144,7 +143,6 @@ impl SortedStringTable for Sst {
             //check if we need to read in a new page
             if middle_page_index != curr_page_index {
                 curr_page_index = middle_page_index;
-                // curr_page_entries = deserialize_page(&mut file, middle_page_index)?; //TODO: deserializing a page is overkill, only need one entry to be deserialized
                 let bp = buffer_pool.as_deref_mut(); //NOTE: watch out for this (.as_deref_mut), not quite sure if it will cause bugs, shouldn't though
                 curr_page = get_page(db_name, level, run, middle_page_index, bp)?;
             };
@@ -214,7 +212,7 @@ impl SortedStringTable for Sst {
                 buffer_pool.as_deref_mut(),
             )?
         };
-        let upperbound_entries = &deserialize(&upperbound_bound_page).unwrap_or_else(|_| panic!("Unable to deserialize upperbound page during scan, level: {level}, run: {run} page_index: {upperbound_page_index}"))[..upperbound_within_page_index + 1]; //NOTE: curr_page_entries should be the same page that we found our upperbound in //TODO: handle unwrap
+        let upperbound_entries = &deserialize(&upperbound_bound_page).unwrap_or_else(|_| panic!("Unable to deserialize upperbound page during scan, level: {level}, run: {run} page_index: {upperbound_page_index}"))[..upperbound_within_page_index + 1]; //NOTE: curr_page_entries should be the same page that we found our upperbound in
 
         let lower_bound_page = if curr_page_index == lowerbound_page_index {
             curr_page
@@ -227,7 +225,7 @@ impl SortedStringTable for Sst {
                 buffer_pool.as_deref_mut(),
             )?
         };
-        let lowerbound_entries = &deserialize(&lower_bound_page).unwrap_or_else(|_| panic!("Unable to deserialize lowerbound page during scan, level: {level}, run: {run} page_index: {lowerbound_page_index}"))[lowerbound_within_page_index..]; //NOTE: curr_page_entries should be the same page that we found our lowerbound in //TODO: handle unwrap
+        let lowerbound_entries = &deserialize(&lower_bound_page).unwrap_or_else(|_| panic!("Unable to deserialize lowerbound page during scan, level: {level}, run: {run} page_index: {lowerbound_page_index}"))[lowerbound_within_page_index..]; //NOTE: curr_page_entries should be the same page that we found our lowerbound in
 
         //step 3: get all entries between the pages that contain our lowerbound and upperbound values
         //NOTE: by this point we have all the values in the pages that contain our bounds
