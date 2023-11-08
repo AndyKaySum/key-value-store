@@ -78,7 +78,10 @@ impl Database {
     ///INTERNAL ONLY (do not make public), externally should use open()
     fn new(name: &str, config: Config, metadata: Metadata) -> Database {
         if name == Self::NO_OPEN_DB_NAME {
-            panic!("{name} is an invalid Database name");
+            panic!("\"{name}\" is an invalid Database name");
+        }
+        if name.contains(char::is_whitespace) {
+            panic!("\"{name}\" is an invalid Database name (cannot contain whitespaces)")
         }
         let Config {
             buffer_pool_initial_size,
