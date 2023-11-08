@@ -11,7 +11,7 @@ use crate::{
     util::filename,
     util::{
         system_info,
-        types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value, ENTRY_SIZE},
+        types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value},
     },
 };
 
@@ -29,7 +29,7 @@ struct Config {
 impl Config {
     fn new() -> Self {
         Self {
-            memtable_capacity: system_info::page_size() / ENTRY_SIZE,
+            memtable_capacity: system_info::num_entries_per_page(),
             sst_size_ratio: Database::DEFAULT_SST_SIZE_RATIO,
             sst_implementation: SstImplementation::Array,
             enable_buffer_pool: false,   //TODO: change in step 2
