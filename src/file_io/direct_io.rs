@@ -12,20 +12,20 @@ use std::os::windows::fs::OpenOptionsExt;
 
 use crate::util::{system_info, types::Page};
 
-fn direct_io_flags() -> u32 {
-    #[cfg(unix)]
-    {
-        // Unix-specific code
-        libc::O_DIRECT //TODO: test this on a unix system
-    }
+#[cfg(unix)]
+fn direct_io_flags() -> i32 {
+    // Unix-specific code
+    extern crate libc;
+    //NOTE: O_DIRECT is not available on apple silicon, seems like they can't do direct I/O (need to confirm)
+    libc::O_DIRECT //TODO: test this on a unix system
+}
 
-    #[cfg(windows)]
-    {
-        // Windows-specific code
-        extern crate winapi;
-        use winapi::um::winbase::{FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH};
-        FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH //direct io flags for windows
-    }
+#[cfg(windows)]
+fn direct_io_flags() -> u32 {
+    // Windows-specific code
+    extern crate winapi;
+    use winapi::um::winbase::{FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH};
+    FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH //direct io flags for windows
 }
 
 fn open_options() -> OpenOptions {
