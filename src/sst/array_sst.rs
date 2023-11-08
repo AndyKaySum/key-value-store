@@ -99,7 +99,6 @@ impl SortedStringTable for Sst {
                 let bp = buffer_pool.as_deref_mut(); //NOTE: watch out for this, not quite sure if it will cause bugs, shouldn't though
                 curr_page = get_page(db_name, level, run, middle_page_index, bp)?;
             };
-            // let middle_entry = curr_page_entries[entry_index];
             let middle_entry = deserialize_entry_within_page(&curr_page, entry_index)
                 .expect("Invalid number of bytes in page");
             Ok((middle_entry, middle_index))
@@ -146,7 +145,6 @@ impl SortedStringTable for Sst {
                 let bp = buffer_pool.as_deref_mut(); //NOTE: watch out for this (.as_deref_mut), not quite sure if it will cause bugs, shouldn't though
                 curr_page = get_page(db_name, level, run, middle_page_index, bp)?;
             };
-            // let (middle_key, _) = curr_page_entries[entry_index];
             let (middle_key, _) = deserialize_entry_within_page(&curr_page, entry_index)
                 .expect("Invalid number of bytes in page");
             Ok((middle_key, middle_index))
@@ -232,7 +230,6 @@ impl SortedStringTable for Sst {
         results.extend_from_slice(lowerbound_entries);
 
         for i in (lowerbound_page_index + 1)..upperbound_page_index {
-            // let page_entries = deserialize_page(&mut file, i)?;
             let page = get_page(db_name, level, run, i, buffer_pool.as_deref_mut())?;
             let page_entries = &deserialize(&page).unwrap_or_else(|_| panic!("Unable to deserialize page during scan, level: {level}, run: {run} page_index: {i}"));
 
