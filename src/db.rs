@@ -42,7 +42,7 @@ impl Config {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Metadata {
-    sst_counts: Vec<Size>, //number of SSTs in each level, NOTE: this should not really be in a "config" file, but this struct gets written to disk (and we'll assume DB files aren't changed externally, so we can use this to keep track of ssts isntead of verifying and getting sst counts when opening a DB)
+    sst_counts: Vec<Size>, //number of SSTs in each level
 }
 
 impl Metadata {
@@ -441,14 +441,21 @@ mod tests {
 
         let mut db = Database::open(&db_name).set_memtable_capacity(2);
 
-        //Test puts
-        db.put(0, 10);
+        //Test puts, and check if younger values are used instead of older values in gets
+        db.put(0, 1); //This value should be immediately replaced
+        assert_eq!(db.get(0), Some(1));
+        db.put(0, 2);
+        assert_eq!(db.get(0), Some(2)); //This value should be replaced after flushing
         db.put(10, 100);
         db.put(20, 200);
+        db.put(0, 3); //original value of 0, should have been flushed
+        assert_eq!(db.get(0), Some(3)); //case: memtable "blocking" sst search
         db.put(30, 300);
         db.put(40, 400);
+        assert_eq!(db.get(0), Some(3)); //case: sst blocking older sst search
+        db.put(0, 10);
 
-        assert_eq!(db.metadata.sst_counts[0], 2); // Should have flushed 2 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
+        assert_eq!(db.metadata.sst_counts[0], 3); // Should have flushed 2 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
 
         //Test gets
         assert_eq!(db.get(0), Some(10));
