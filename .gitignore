@@ -1,3 +1,4 @@
 /target
 *.sst
 *.bin
+*.csv
