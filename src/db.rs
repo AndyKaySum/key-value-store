@@ -11,7 +11,7 @@ use crate::{
     util::filename,
     util::{
         system_info,
-        types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value},
+        types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value, ENTRY_SIZE},
     },
 };
 
@@ -103,12 +103,15 @@ impl Database {
     pub fn memtable_capacity(&self) -> Size {
         self.config.memtable_capacity
     }
-    pub fn resize_memtable(mut self, memtable_capacity: Size) -> Self {
+    pub fn set_memtable_capacity(mut self, memtable_capacity: Size) -> Self {
         if memtable_capacity < 1 {
             panic!("{memtable_capacity} is an invalid memtable capacity");
         }
         self.config.memtable_capacity = memtable_capacity;
         self
+    }
+    pub fn set_memtable_capacity_mb(self, memtable_capacity_mb: Size) -> Self {
+        self.set_memtable_capacity(memtable_capacity_mb * 2_usize.pow(20) / ENTRY_SIZE)
     }
     pub fn sst_size_ratio(&self) -> Size {
         self.config.sst_size_ratio
@@ -120,8 +123,9 @@ impl Database {
     pub fn sst_implementation(&self) -> SstImplementation {
         self.config.sst_implementation
     }
-    pub fn set_sst_implementation(&self) -> SstImplementation {
-        self.config.sst_implementation
+    pub fn set_sst_implementation(mut self, sst_implementation: SstImplementation) -> Self {
+        self.config.sst_implementation = sst_implementation;
+        self
     }
     pub fn enable_buffer_pool(&self) -> bool {
         self.config.enable_buffer_pool
@@ -435,7 +439,7 @@ mod tests {
         }
         std::fs::create_dir_all(test_dir).unwrap();
 
-        let mut db = Database::open(&db_name).resize_memtable(2);
+        let mut db = Database::open(&db_name).set_memtable_capacity(2);
 
         //Test puts
         db.put(0, 10);
@@ -499,7 +503,7 @@ mod tests {
         std::fs::create_dir_all(test_dir).unwrap();
 
         let memtable_cap = 896; //3.5 pages (4096 bytes * 3.5/16)
-        let mut db = Database::open(&db_name).resize_memtable(memtable_cap);
+        let mut db = Database::open(&db_name).set_memtable_capacity(memtable_cap);
         let range = -1000..1000; //3.5 pages of
         let mut entries = Vec::<(Key, Value)>::new();
 

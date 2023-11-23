@@ -1,4 +1,4 @@
-use csc443_project::{db::Database, util::types::ENTRY_SIZE};
+use csc443_project::db::Database;
 mod benchmarker;
 mod experiment;
 
@@ -8,7 +8,7 @@ fn main() {
     println!("Memtable Size: {} MB\n", MEMTABLE_MB_SIZE);
 
     let database_alterations =
-        |db: Database| -> Database { db.resize_memtable(MEMTABLE_MB_SIZE * 2_usize.pow(20) / ENTRY_SIZE) };
+        |db: Database| -> Database { db.set_memtable_capacity_mb(MEMTABLE_MB_SIZE) };
 
     experiment::run_and_save(Box::new(database_alterations), "part1_experiments");
 }
