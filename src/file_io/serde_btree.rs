@@ -109,7 +109,7 @@ fn test_serde() {
     assert_eq!(buffer.len(), node_size());
     let entries_deserialized = deserialize(&buffer).unwrap();
 
-    assert_eq!(entries.to_vec(), entries_deserialized[..2]);
+    assert_eq!(entries[..2].to_vec(), entries_deserialized);
 }
 
 #[test]
