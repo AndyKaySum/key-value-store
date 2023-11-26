@@ -82,10 +82,9 @@ impl SortedStringTable for Sst {
         level: Level,
         run: Run,
         key: Key,
+        num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Option<Value>> {
-        let num_entries = self.len(db_name, level, run)? as u64; //TODO: remove this and keep track of file sizes somewhere
-
         let mut curr_page_index = usize::MAX;
         let mut curr_page = Vec::<u8>::new();
 
@@ -123,12 +122,11 @@ impl SortedStringTable for Sst {
         db_name: &str,
         level: Level,
         run: Run,
-        key1: Key,
-        key2: Key,
+        key_range: (Key, Key),
+        num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Vec<(Key, Value)>> {
-        let num_entries = self.len(db_name, level, run)? as u64; //TODO: remove this and keep track of file sizes somewhere
-
+        let (key1, key2) = key_range;
         let mut results: Vec<(Key, Value)> = Vec::new();
 
         //hold onto the current page we're looking at to avoid some repeated deserialization

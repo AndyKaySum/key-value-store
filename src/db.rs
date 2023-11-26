@@ -42,13 +42,13 @@ impl Config {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Metadata {
-    sst_counts: Vec<Size>, //number of SSTs in each level
+    entry_counts: Vec<Vec<Size>>, //number of entries in each SST (outer index: Level, inner Index: run)
 }
 
 impl Metadata {
     fn new() -> Self {
         Self {
-            sst_counts: vec![0],
+            entry_counts: vec![vec![]],
         }
     }
 }
@@ -158,6 +158,13 @@ impl Database {
     fn is_closed(&self) -> bool {
         self.name == Self::NO_OPEN_DB_NAME
     }
+    ///Gets number of SSTs in level, NOTE: a value of 0 can mean that there is no level
+    fn sst_count(&self, level: Level) -> Size {
+        match self.metadata.entry_counts.get(level) {
+            None => 0,
+            Some(level_entry_counts) => level_entry_counts.len()
+        }
+    }
     //GETTERS AND SETTERS (end)
 
     fn write_config_file(&self) {
@@ -245,9 +252,10 @@ impl Database {
     }
     ///compacts depending on number of ssts at level and compaction policy
     fn handle_compaction(&mut self, level: Level) {
-        let _num_runs = self.metadata.sst_counts[level];
+        let _num_runs = self.sst_count(level);
         let _max_runs = self.config.sst_size_ratio.pow(level as u32);
         let has_flushed_level = false;
+        let num_entries_after_compaction = 0;//Number of entries after compaction step
         match self.config.compaction_policy {
             CompactionPolicy::None => {
                 return;
@@ -258,10 +266,10 @@ impl Database {
             _ => {} //TODO: handle compaction for policies we plan to implement
         }
         //if we flushed, we need to potentially handle compaction for the next level
-        if has_flushed_level {
-            if self.metadata.sst_counts.get(level + 1).is_none() {
+        if has_flushed_level && num_entries_after_compaction > 0 {
+            if self.metadata.entry_counts.get(level + 1).is_none() {
                 //new level created, with a single sst
-                self.metadata.sst_counts.push(1);
+                self.metadata.entry_counts[level].push(num_entries_after_compaction);
             }
             self.handle_compaction(level + 1)
         }
@@ -277,7 +285,7 @@ impl Database {
     ///Writes memtable contents to disk, clears memtable, and handles compaction if needed
     fn flush_memtable(&mut self) {
         let level = Self::LEVEL_ZERO;
-        let next_run_num = self.metadata.sst_counts[level];
+        let next_run_num = self.sst_count(level);
 
         //Write memtable to memory
         let sst = self.sst_interface();
@@ -285,7 +293,7 @@ impl Database {
         if let Err(why) = sst.write(&self.name, level, next_run_num, &entries) {
             panic!("Failed to flush memtable to SST, reason: {why}");
         };
-        self.metadata.sst_counts[level] += 1;
+        self.metadata.entry_counts[level].push(entries.len());
 
         self.handle_compaction(level);
 
@@ -327,11 +335,11 @@ impl Database {
         self.put_unchecked(key, Self::TOMBSTONE_VALUE);
     }
     ///For each sst, from youngest to oldest, run a callback function (the callback returns true if we want to return early)
-    fn for_each_sst(sst_counts: &[Size], callback: &mut dyn FnMut(Level, Run) -> bool) {
-        for (level, runs_in_level) in sst_counts.iter().enumerate() {
+    fn for_each_sst(entry_counts: &[Vec<Size>], callback: &mut dyn FnMut(Level, Run) -> bool) {
+        for (level, level_entry_counts) in entry_counts.iter().enumerate() {
             //lower level is younger
-            // let runs_in_level = sst_counts[level];
-            for run in (0..*runs_in_level).rev() {
+            let runs_in_level = level_entry_counts.len();
+            for run in (0..runs_in_level).rev() {
                 //higher number sst is younger
                 if callback(level, run) {
                     return;
@@ -355,8 +363,9 @@ impl Database {
         } else {
             None
         };
+        let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.get(&self.name, level, run, key, buffer_pool.take()) {
+            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.take()) {
                 Err(why) => panic!("Something went wrong trying to get key {key} at level {level}, sst {run}, reason: {why}"),
                 Ok(get_attempt_result) => {
                     if get_attempt_result.is_none() {
@@ -367,7 +376,7 @@ impl Database {
                 }
             }
         };
-        Self::for_each_sst(&self.metadata.sst_counts, &mut callback);
+        Self::for_each_sst(&self.metadata.entry_counts, &mut callback);
         if sst_search_result.is_some_and(|value| value == Self::TOMBSTONE_VALUE) {
             return None;
         }
@@ -392,8 +401,9 @@ impl Database {
         } else {
             None
         };
+        let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.scan(&self.name, level, run, key1, key2, buffer_pool.take()) {
+            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.take()) {
                 Err(why) => panic!("Something went wrong trying to scan range ({key1} to {key2}) at level {level}, sst {run}, reason: {why}"),
                 Ok(scan_result) => {
                     for (key, value) in scan_result {
@@ -407,7 +417,7 @@ impl Database {
             }
             false
         };
-        Self::for_each_sst(&self.metadata.sst_counts, &mut callback);
+        Self::for_each_sst(&self.metadata.entry_counts, &mut callback);
         let mut sorted_values = Vec::with_capacity(max_heap.len());
         while let Some((negative_key, value)) = max_heap.pop() {
             if value != Self::TOMBSTONE_VALUE {
@@ -455,7 +465,7 @@ mod tests {
         assert_eq!(db.get(0), Some(3)); //case: sst blocking older sst search
         db.put(0, 10);
 
-        assert_eq!(db.metadata.sst_counts[0], 3); // Should have flushed 2 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
+        assert_eq!(db.sst_count(0), 3); // Should have flushed 2 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
 
         //Test gets
         assert_eq!(db.get(0), Some(10));
@@ -521,7 +531,7 @@ mod tests {
             entries.push(entry);
         }
 
-        assert_eq!(db.metadata.sst_counts[0], entries.len() / memtable_cap); //NOTE: this will be wrong if the previous call to this function panicked
+        assert_eq!(db.sst_count(0), entries.len() / memtable_cap); //NOTE: this will be wrong if the previous call to this function panicked
 
         //Test gets
         for (key, value) in entries.iter() {

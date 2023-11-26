@@ -30,6 +30,7 @@ pub trait SortedStringTable {
         level: Level,
         run: Run,
         key: Key,
+        num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Option<Value>>;
 
@@ -39,8 +40,8 @@ pub trait SortedStringTable {
         db_name: &str,
         level: Level,
         run: Run,
-        key1: Key,
-        key2: Key,
+        key_range: (Key, Key),
+        num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Vec<(Key, Value)>>;
 
