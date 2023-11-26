@@ -1,6 +1,10 @@
 use csc443_project::{
+    ceil_div,
     db::Database,
-    util::types::{Key, Size, Value, ENTRY_SIZE},
+    util::{
+        system_info::ENTRY_SIZE,
+        types::{Key, Size, Value},
+    },
 };
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use std::{hint::black_box, time::Instant};
@@ -9,7 +13,7 @@ const NS_PER_SEC: u128 = 1_000_000_000; //For conversions from sec to nanosec
 
 ///Inserts num_bytes worth of entries, returns entries added (in order that they were added)
 fn _fill_db_with_size(db: &mut Database, num_bytes: Size) -> Vec<(Key, Value)> {
-    let num_entries = (num_bytes + ENTRY_SIZE - 1) / ENTRY_SIZE; //ceil divison
+    let num_entries = ceil_div!(num_bytes, ENTRY_SIZE); //ceil divison
     let range = 0..num_entries;
 
     let mut entries = Vec::<(Key, Value)>::new();

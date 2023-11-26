@@ -1,16 +1,11 @@
 use std::io;
 use std::{fs::File, io::Write};
 
-use crate::util::system_info;
-use crate::util::types::{Key, Value, ENTRY_SIZE};
+use crate::util::system_info::ENTRY_SIZE;
+use crate::util::types::{Key, Value};
 
 use super::direct_io::read_page;
-
-fn nearest_min_write_size_multiple(size: usize) -> usize {
-    let min_write_size = system_info::mimimum_write_size();
-    let multiplier = (size + min_write_size - 1) / min_write_size;
-    min_write_size * multiplier
-}
+use super::serde_util::nearest_min_write_size_multiple;
 
 ///Returns a little endian buffer representation of entry array
 pub fn serialize(entries: &[(Key, Value)]) -> Vec<u8> {
@@ -25,7 +20,7 @@ pub fn serialize(entries: &[(Key, Value)]) -> Vec<u8> {
     buffer
 }
 
-pub fn serialize_into(writer: &mut File, entries: &[(Key, Value)]) -> io::Result<()> {
+pub fn serialize_into_no_resize(writer: &mut File, entries: &[(Key, Value)]) -> io::Result<usize> {
     let mut buffer = serialize(entries);
     let buffer_len = buffer.len();
     //Direct IO requires that we write some multiple of a minimum write size
@@ -33,6 +28,11 @@ pub fn serialize_into(writer: &mut File, entries: &[(Key, Value)]) -> io::Result
     //and then resize the file to be the actual number of bytes written
     buffer.resize(nearest_min_write_size_multiple(buffer_len), 0);
     writer.write_all(&buffer)?;
+    Ok(buffer_len)
+}
+
+pub fn serialize_into(writer: &mut File, entries: &[(Key, Value)]) -> io::Result<()> {
+    let buffer_len = serialize_into_no_resize(writer, entries)?;
     writer.set_len(buffer_len as u64)
 }
 
@@ -65,7 +65,7 @@ pub fn deserialize(buffer: &[u8]) -> Result<Vec<(Key, Value)>, String> {
 
     let mut entries: Vec<(Key, Value)> = Vec::with_capacity(num_entries);
 
-    //loop over 1 entries worth of bytes, conver them to key and value tuple, add to our vec
+    //loop over groupings of bytes (size of an entry), convert them to key and value tuple, add to our vec
     for byte_chunk in buffer.chunks(ENTRY_SIZE) {
         let entry = deserialize_entry(byte_chunk).unwrap(); //NOTE: can unwrap because of the check at the start of the fn
         entries.push(entry);

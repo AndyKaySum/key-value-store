@@ -1,4 +1,6 @@
-use crate::util::types::ENTRY_SIZE;
+use super::types::{Key, Value};
+
+pub const ENTRY_SIZE: usize = std::mem::size_of::<Key>() + std::mem::size_of::<Value>();
 
 pub fn page_size() -> usize {
     //NOTE: using a libary for this might be overkill, maybe just fix value to 4k isntead (consider this later)
