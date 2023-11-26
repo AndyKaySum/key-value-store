@@ -229,7 +229,7 @@ impl SortedStringTable for Sst {
         Ok(byte_count as Size / ENTRY_SIZE)
     }
 
-    fn compact(&self, db_name: &str, level: Level, entry_counts: &[Size]) -> Size {
+    fn compact(&self, _db_name: &str, _level: Level, _entry_counts: &[Size]) -> Size {
         unimplemented!()
     }
 }

@@ -70,7 +70,7 @@ pub fn seek_node(
     num_entries: Size,
 ) -> std::io::Result<u64> {
     let seek_offset = node_byte_index(depth, node, num_entries);
-    file.seek(std::io::SeekFrom::Start(seek_offset as u64))?;
+    file.seek(std::io::SeekFrom::Start(seek_offset))?;
     Ok(seek_offset)
 }
 
@@ -142,8 +142,8 @@ pub fn btree_navigate(
 }
 
 mod tests {
-    use crate::util::types::Value; //NOTE: my vscode is marking this as unused, but that's not true
-
+    //NOTE: my vscode is marking this as unused, but that's not true
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]

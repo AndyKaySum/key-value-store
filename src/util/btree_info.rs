@@ -1,6 +1,6 @@
 use super::{
-    system_info::{page_size, ENTRY_SIZE},
-    types::{Key, Page, Size},
+    system_info::page_size,
+    types::{Key, Page},
 };
 
 ///Size of B-tree node in bytes

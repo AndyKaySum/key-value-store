@@ -549,7 +549,7 @@ mod tests {
 
             //Test gets
             for (key, value) in entries.iter() {
-                assert_eq!(db.get(key.clone()), Some(value.clone()), "key: {key}");
+                assert_eq!(db.get(*key), Some(*value), "key: {key}");
             }
 
             //Test getting values that are not in the db
@@ -596,21 +596,21 @@ mod tests {
             //Test overwriting existing keys
             let step = 3;
             for (key, value) in entries.iter().step_by(step) {
-                db.put(key.clone(), value * 2);
+                db.put(*key, value * 2);
             }
             for (i, (key, value)) in entries.iter().enumerate() {
                 if i % step == 0 {
-                    assert_eq!(db.get(key.clone()), Some(value * 2));
+                    assert_eq!(db.get(*key), Some(value * 2));
                 } else {
-                    assert_eq!(db.get(key.clone()), Some(value.clone()));
+                    assert_eq!(db.get(*key), Some(*value));
                 }
             }
 
             //Test deletes
             let delete_step = 3; //NOTE: if this value is different from <step>, you'll need a new vec to hold onto the new db values that the prev test changed
             for (key, _) in entries.iter().step_by(delete_step) {
-                db.delete(key.clone());
-                assert_eq!(db.get(key.clone()), None);
+                db.delete(*key);
+                assert_eq!(db.get(*key), None);
             }
 
             //Test how deletes affect scan
@@ -660,7 +660,7 @@ mod tests {
 
             //Test gets
             for (key, value) in entries.iter() {
-                assert_eq!(db.get(key.clone()), Some(value.clone()), "key: {key}");
+                assert_eq!(db.get(*key), Some(*value), "key: {key}");
             }
 
             //check that scan of db returns all entries
@@ -681,21 +681,21 @@ mod tests {
             //Test overwriting existing keys
             let step = 3;
             for (key, value) in entries.iter().step_by(step) {
-                db.put(key.clone(), value * 2);
+                db.put(*key, value * 2);
             }
             for (i, (key, value)) in entries.iter().enumerate() {
                 if i % step == 0 {
-                    assert_eq!(db.get(key.clone()), Some(value * 2));
+                    assert_eq!(db.get(*key), Some(value * 2));
                 } else {
-                    assert_eq!(db.get(key.clone()), Some(value.clone()));
+                    assert_eq!(db.get(*key), Some(*value));
                 }
             }
 
             //Test deletes
             let delete_step = step; //NOTE: if this value is different from <step>, you'll need a new vec to hold onto the new db values that the prev test changed
             for (key, _) in entries.iter().step_by(delete_step) {
-                db.delete(key.clone());
-                assert_eq!(db.get(key.clone()), None);
+                db.delete(*key);
+                assert_eq!(db.get(*key), None);
             }
 
             //Test how deletes affect scan
