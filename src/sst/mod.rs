@@ -51,5 +51,11 @@ pub trait SortedStringTable {
     fn len(&self, db_name: &str, level: Level, run: Run) -> io::Result<Size>;
 
     ///Compact all SSTs in a level into a single SST
-    fn compact(&self, db_name: &str, level: Level, entry_counts: &[Size]) -> Size;
+    fn compact(
+        &self,
+        db_name: &str,
+        level: Level,
+        entry_counts: &[Size],
+        discard_tombstones: bool,
+    ) -> io::Result<Size>;
 }

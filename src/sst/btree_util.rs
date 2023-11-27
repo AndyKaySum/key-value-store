@@ -21,7 +21,6 @@ pub fn num_leaves(num_entries: Size) -> Size {
 
 ///Depth of B-tree, same as number of inner node levels
 pub fn tree_depth(num_entries: Size) -> Size {
-    // (num_entries as f64).log(fanout() as f64).ceil() as Size
     (num_leaves(num_entries) as f64).log(fanout() as f64).ceil() as Size
 }
 
@@ -31,11 +30,6 @@ pub fn subtree_height(depth: Depth, num_entries: Size) -> Size {
 
 ///Number of nodes at a given depth
 pub fn num_nodes(depth: Depth, num_entries: Size) -> Size {
-    // let b = fanout();
-    // let total_levels = num_levels(num_entries);
-    // let denominator = b.pow((total_levels - depth) as u32);
-    // // (num_entries + denominator - 1) / denominator //ceil division
-    // ceil_div!(num_entries, denominator)
     ceil_div!(
         num_leaves(num_entries),
         fanout().pow(subtree_height(depth, num_entries) as u32)
@@ -73,10 +67,6 @@ pub fn seek_node(
     file.seek(std::io::SeekFrom::Start(seek_offset))?;
     Ok(seek_offset)
 }
-
-// pub fn total_nodes(num_entries: Size) -> Size {
-//     depth_page_index(tree_depth(num_entries), num_entries) - ROOT_PAGE_OFFSET
-// }
 
 ///Gets the largest values in each chunk of an array of keys. Useful for building inner nodes of B-tree
 /// NOTE: assumes array is sorted

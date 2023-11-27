@@ -1,13 +1,12 @@
 use std::io; //can swap "serde_entry" with "bincode" to swap functions
 
 use crate::sst::btree_util::num_leaves;
-use crate::sst::sst_util::get_sst_page;
 use crate::util::algorithm::{
     binary_search_entries, binary_search_leftmost, binary_search_rightmost,
 };
 use crate::{
     buffer_pool::BufferPool,
-    file_io::{direct_io, serde_btree, serde_entry},
+    file_io::{direct_io, serde_btree},
     sst::btree_util::num_nodes,
     util::{
         btree_info::fanout,
@@ -20,6 +19,7 @@ use crate::{
 use super::btree_util::{
     btree_navigate, get_last_in_each_chunk, has_inner_nodes, seek_node, tree_depth,
 };
+use super::sst_util::get_entries_at_page;
 use super::{array_sst, SortedStringTable};
 
 pub struct Sst;
@@ -105,9 +105,7 @@ impl SortedStringTable for Sst {
             buffer_pool.as_deref_mut(),
         )?; //next_node;
 
-        let page = get_sst_page(db_name, level, run, page_index, buffer_pool)?;
-
-        let entries = serde_entry::deserialize(&page).unwrap_or_else(|_| panic!("Failed to deserialize page during final step of get operation, name: {db_name}, level: {level}, run: {run}, page index: {page_index}, num_entries: {num_entries}"));
+        let entries = get_entries_at_page(db_name, level, run, page_index, buffer_pool)?;
 
         Ok(binary_search_entries(&entries, key))
     }
@@ -137,21 +135,6 @@ impl SortedStringTable for Sst {
             buffer_pool.as_deref_mut(),
         )?;
 
-        let lowerbound_page = get_sst_page(
-            db_name,
-            level,
-            run,
-            lowerbound_page_index,
-            buffer_pool.as_deref_mut(),
-        )?;
-        let lowerbound_page_entries = serde_entry::deserialize(&lowerbound_page)
-            .unwrap_or_else(|_| panic!("Failed to deserialize lowerbound page, name: {db_name}, level: {level}, run: {run}, page index: {lowerbound_page_index} num_entries: {num_entries}"));
-        let lowerbound_keys: Vec<Key> = lowerbound_page_entries
-            .iter()
-            .map(|(key, _)| *key)
-            .collect(); //TODO: write a specific binary search for entries instead of creating mapped array
-        let lowerbound_within_page_index = binary_search_leftmost(&lowerbound_keys, key1);
-
         let upperbound_page_index = btree_navigate(
             db_name,
             level,
@@ -161,26 +144,28 @@ impl SortedStringTable for Sst {
             buffer_pool.as_deref_mut(),
         )?;
 
-        let (upperbound_keys, upperbound_page_entries) = if upperbound_page_index
-            == lowerbound_page_index
-        {
-            (lowerbound_keys, lowerbound_page_entries.to_owned()) //TODO: avoid copying this second item
-        } else {
-            let upperbound_page = get_sst_page(
-                db_name,
-                level,
-                run,
-                upperbound_page_index,
-                buffer_pool.as_deref_mut(),
-            )?;
-            let upperbound_page_entries = serde_entry::deserialize(&upperbound_page)
-                .unwrap_or_else(|_| panic!("Failed to deserialize upperbound page, name: {db_name}, level: {level}, run: {run}, page index: {upperbound_page_index} num_entries: {num_entries}"));
-            let upperbound_keys: Vec<Key> = upperbound_page_entries
-                .iter()
-                .map(|(key, _)| *key)
-                .collect(); //TODO: write a specific binary search for entries instead of creating mapped array
-            (upperbound_keys, upperbound_page_entries)
-        };
+        let mut get_entries = |page_index| {
+            get_entries_at_page(db_name, level, run, page_index, buffer_pool.as_deref_mut())
+        }; //for readability: reduce duplicate args
+
+        let lowerbound_page_entries = get_entries(lowerbound_page_index)?;
+        let lowerbound_keys: Vec<Key> = lowerbound_page_entries
+            .iter()
+            .map(|(key, _)| *key)
+            .collect(); //TODO: write a specific binary search for entries instead of creating mapped array
+        let lowerbound_within_page_index = binary_search_leftmost(&lowerbound_keys, key1);
+
+        let (upperbound_keys, upperbound_page_entries) =
+            if upperbound_page_index == lowerbound_page_index {
+                (lowerbound_keys, lowerbound_page_entries.to_owned()) //TODO: avoid copying this second item
+            } else {
+                let upperbound_page_entries = get_entries(upperbound_page_index)?;
+                let upperbound_keys: Vec<Key> = upperbound_page_entries
+                    .iter()
+                    .map(|(key, _)| *key)
+                    .collect(); //TODO: write a specific binary search for entries instead of creating mapped array
+                (upperbound_keys, upperbound_page_entries)
+            };
         let upperbound_within_page_index = binary_search_rightmost(&upperbound_keys, key2);
 
         //EDGE CASE: lowerbound and upperbound are in the same page
@@ -205,8 +190,7 @@ impl SortedStringTable for Sst {
         }
 
         for i in (lowerbound_page_index + 1)..upperbound_page_index {
-            let page = get_sst_page(db_name, level, run, i, buffer_pool.as_deref_mut())?;
-            let page_entries = &serde_entry::deserialize(&page).unwrap_or_else(|_| panic!("Unable to deserialize page during scan, level: {level}, run: {run} page_index: {i}"));
+            let page_entries = get_entries(i)?;
 
             results.extend(page_entries);
         }
@@ -230,7 +214,13 @@ impl SortedStringTable for Sst {
         Ok(byte_count as Size / ENTRY_SIZE)
     }
 
-    fn compact(&self, _db_name: &str, _level: Level, _entry_counts: &[Size]) -> Size {
+    fn compact(
+        &self,
+        _db_name: &str,
+        _level: Level,
+        _entry_counts: &[Size],
+        _discard_tombstones: bool,
+    ) -> io::Result<Size> {
         unimplemented!()
     }
 }
