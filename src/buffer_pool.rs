@@ -17,11 +17,12 @@ impl Frame {
     }
 }
 
+#[allow(dead_code, unused)] //TODO: remove when ready
 #[derive(Debug)]
 pub struct BufferPool {
     //NOTE: all vectors should be at most system_info::page_size() number of bytes
     frames: HashMap<PageKey, Frame>, //TODO: step 2.1 replace with extendible hashing data structure
-    filename_pages: HashMap<String, LinkedList<Page>>, //keeps track of the pages we have in the bufferpool for a given filename
+    filename_pages: HashMap<String, LinkedList<Page>>, //keeps track of the pages we have in the bufferpool for a given filename, NOTE: we need this for when files are deleted or replaced and the items in the buffer pool are no longer valid
     capacity: Size,
     clock_handle: PageKey, //Option<std::collections::hash_map::IterMut<'a, PageKey, Frame>>
 }
