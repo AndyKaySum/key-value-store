@@ -34,7 +34,7 @@ impl BufferPool {
             frames: HashMap::with_capacity(initial_size), //HashMap::with_capacity_and_hasher(capacity, hasher),
             filename_pages: HashMap::new(),
             capacity,
-            clock_handle: ("".to_string(), 0),//TODO: change
+            clock_handle: ("".to_string(), 0), //TODO: change
         }
     }
 

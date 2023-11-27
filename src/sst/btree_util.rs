@@ -107,12 +107,6 @@ pub fn btree_navigate(
     let mut curr_leaf_page_index: Page = 0;
     let mut next_node: Node = 0;
     for depth in 0..num_inner_levels {
-        println!(
-            "next_node: {}, num_nodes at depth {}: {}",
-            next_node,
-            depth,
-            num_nodes(depth, num_entries)
-        );
         let node_page_index = node_page_index(depth, next_node, num_entries);
         let node_page = get_btree_page(
             db_name,
@@ -124,8 +118,6 @@ pub fn btree_navigate(
 
         let node_delimeters = serde_btree::deserialize(&node_page).unwrap_or_else(|_| panic!("Failed to deserialize B-tree node during B-tree navigation while searching for key: {key}, name: {db_name}, level: {level}, run: {run}, page_index: {node_page_index} num_entries: {num_entries}"));
 
-        // println!("binary search rank: depth {depth}, next_node = {next_node}, num_delimeters {}, delimeters {:?}", root_delimeters.len(), root_delimeters); //TODO: remove
-        // println!("next_node, {}", next_node);//TODO: remove
         next_node = binary_search_leftmost(&node_delimeters, key);
         curr_leaf_page_index += next_node * leaves_in_subtree(depth + 1, num_entries);
     }

@@ -89,11 +89,6 @@ impl SortedStringTable for Sst {
                 std::cmp::Ordering::Less => left = middle_index + 1,
                 std::cmp::Ordering::Greater => right = middle_index - 1,
                 std::cmp::Ordering::Equal => {
-                    let (page, within_index) = index_to_2d_index(
-                        system_info::num_entries_per_page(),
-                        middle_index as usize,
-                    );
-                    println!("found at index {middle_index} (page {page}, index_with_page {within_index}), in level {level}, run {run}", ); //TODO: remove
                     return Ok(Some(middle_value));
                 }
             };

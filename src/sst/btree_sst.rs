@@ -58,12 +58,6 @@ impl SortedStringTable for Sst {
         );
         let node_chunk_size = fanout();
 
-        println!(
-            "num levels needed for {num_entries} entries is {}, with fanout of {}",
-            tree_depth(num_entries),
-            fanout()
-        );
-
         //build parent nodes all the way up to root
         for depth in (0..tree_depth(num_entries)).rev() {
             let num_nodes = num_nodes(depth, num_entries);
@@ -71,8 +65,7 @@ impl SortedStringTable for Sst {
             assert_eq!(delimeters_per_node.len(), num_nodes, "Calculated number of nodes on level {level} differs from number of delimeter chunks allocated to this level, chunk sizes: {:?}", delimeters_per_node.map(|delimeter_chunk| delimeter_chunk.len()).collect::<Vec<usize>>()); //if this breaks one of these is wrong
 
             for (node, node_elements) in delimeters_per_node.enumerate() {
-                let offset = seek_node(&mut file, depth, node, num_entries)?;
-                println!("writing node (depth {depth}, node index {node}) at file position {offset} in db: {db_name}, level: {level}, run: {run}");
+                seek_node(&mut file, depth, node, num_entries)?;
                 serde_btree::serialize_into(&mut file, node_elements)?;
             }
 
@@ -111,10 +104,6 @@ impl SortedStringTable for Sst {
             num_entries,
             buffer_pool.as_deref_mut(),
         )?; //next_node;
-
-        println!(
-            "get({key}) on db: {db_name}, level: {level}, run: {run} sent us to page {page_index}"
-        );
 
         let page = get_sst_page(db_name, level, run, page_index, buffer_pool)?;
 
