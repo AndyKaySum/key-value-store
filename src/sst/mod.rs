@@ -50,12 +50,12 @@ pub trait SortedStringTable {
     //Number of entries in SST
     fn len(&self, db_name: &str, level: Level, run: Run) -> io::Result<Size>;
 
-    ///Compact all SSTs in a level into a single SST
+    ///Compact all SST runs in a level into a single SST run and update entry_counts to reflect that
     fn compact(
         &self,
         db_name: &str,
         level: Level,
-        entry_counts: &[Size],
+        entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
-    ) -> io::Result<Size>;
+    ) -> io::Result<()>;
 }

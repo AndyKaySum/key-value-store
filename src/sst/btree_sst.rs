@@ -218,9 +218,9 @@ impl SortedStringTable for Sst {
         &self,
         _db_name: &str,
         _level: Level,
-        _entry_counts: &[Size],
+        _entry_counts: &mut Vec<Size>,
         _discard_tombstones: bool,
-    ) -> io::Result<Size> {
+    ) -> io::Result<()> {
         unimplemented!()
     }
 }

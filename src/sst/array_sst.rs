@@ -1,18 +1,21 @@
 use crate::{
     buffer_pool::BufferPool,
+    ceil_div,
+    db::Database,
     file_io::{
         direct_io,
         serde_entry::{
-            deserialize, deserialize_entry_within_page, deserialize_from, serialize_into,
+            self, deserialize, deserialize_entry_within_page, deserialize_from, serialize_into,
         },
     },
+    sst::sst_util::get_entries_at_page,
     util::{
         filename,
-        system_info::{self, ENTRY_SIZE},
-        types::{Key, Level, Run, Size, Value},
+        system_info::{self, num_entries_per_page, ENTRY_SIZE},
+        types::{Key, Level, Page, Run, Size, Value},
     },
 };
-use std::{fs, io};
+use std::{collections::BinaryHeap, fs, io};
 
 use super::{sst_util::get_sst_page, SortedStringTable};
 
@@ -224,13 +227,450 @@ impl SortedStringTable for Sst {
         Ok(byte_count as Size / ENTRY_SIZE)
     }
 
+    ///Compact all SST runs in a level into a single SST run and update entry_counts to reflect that
     fn compact(
         &self,
-        _db_name: &str,
-        _level: Level,
-        _entry_counts: &[Size],
-        _discard_tombstones: bool,
-    ) -> io::Result<Size> {
-        unimplemented!()
+        db_name: &str,
+        level: Level,
+        entry_counts: &mut Vec<Size>,
+        discard_tombstones: bool,
+    ) -> io::Result<()> {
+        let num_runs = entry_counts.len(); //Number of SST runs
+        let page_counts: Vec<Size> = entry_counts
+            .iter()
+            .map(|num_entries| ceil_div!(num_entries, num_entries_per_page()))
+            .collect(); //Number of pages in each SST run
+
+        let get_entries =
+            |run, page_index| get_entries_at_page(db_name, level, run, page_index, None);
+
+        //Input buffer along with metadata for each run, index within buffer, page_index of buffer entries, boolean to indicate whether or not any more values exist in SST
+        type InputBufferData = (Vec<(Key, Value)>, usize, Page);
+        let mut input_buffers: Vec<InputBufferData> = (0..num_runs)
+            .map(|run| {
+                let entries = match get_entries(run, 0) {
+                    Err(_) => vec![],
+                    Ok(entries) => entries,
+                };
+                (entries, 0, 0)
+            })
+            .collect();
+
+        //Pull entry from buffer, if at end, then fill buffer with next page of entries
+        //Return None if no more entires to pull in run's SST
+        let pull_entry = |input_buffers: &mut Vec<InputBufferData>,
+                          run: Run|
+         -> io::Result<Option<(Key, Value)>> {
+            let (entries, curr_index, curr_page) = &mut input_buffers[run];
+
+            if *curr_index >= entries.len() {
+                //check if we are at the end of this input buffer
+                if *curr_page + 1 < page_counts[run] {
+                    //if there is another page of entries to pull into our buffer, do it
+                    *curr_page += 1;
+                    *entries = get_entries(run, *curr_page)?;
+
+                    *curr_index = 0;
+                } else {
+                    //no more entries in the SST to pull into buffer
+                    return Ok(None);
+                }
+            }
+
+            let entry = entries[*curr_index];
+            *curr_index += 1;
+
+            Ok(Some(entry))
+        };
+
+        type BufferHeap = BinaryHeap<(Key, Run, Value)>;
+        let mut heap = BufferHeap::new(); //to ensure we write the smallest value in our buffers
+
+        let mut output_buffer: Vec<(Key, Value)> = Vec::with_capacity(num_entries_per_page());
+        let temp_file_name = filename::sst_compaction_path(db_name, level);
+        let mut output = direct_io::create(&temp_file_name)?;
+        let mut entries_written: Size = 0;
+
+        let heap_insert = |heap: &mut BufferHeap, key: Key, value, run| {
+            //NOTE: tuple elements are sorted lexicographically in the heap by default, this fact is very
+            //      important for the implementation. In case of a tie, the youngest (highest number) SST
+            //      run will have its value used
+            heap.push((-key, run, value)); //Negative key to use as min_heap instead
+        };
+        let heap_extract = |heap: &mut BufferHeap| {
+            if let Some((negative_key, run, value_option)) = heap.pop() {
+                let key = -negative_key;
+                return Some(((key, value_option), run));
+            }
+            None
+        };
+
+        //take item from heap and replace it with another element in its run (if there is any)
+        let heap_swap_extract = |heap: &mut BufferHeap,
+                                 input_buffers: &mut Vec<InputBufferData>|
+         -> io::Result<Option<(Key, Value)>> {
+            if let Some((entry, run)) = heap_extract(heap) {
+                if let Some(replacement_entry) = pull_entry(input_buffers, run)? {
+                    let (key, value) = replacement_entry;
+                    heap_insert(heap, key, value, run);
+                }
+                return Ok(Some(entry));
+            }
+            Ok(None)
+        };
+        let mut flush_output_buffer = |output_buffer: &mut Vec<(Key, Value)>| -> io::Result<()> {
+            if output_buffer.is_empty() {
+                return Ok(());
+            }
+            serde_entry::serialize_into_no_resize(&mut output, output_buffer)?;
+            entries_written += output_buffer.len();
+            output_buffer.clear();
+            Ok(())
+        };
+        let mut output_buffer_insert =
+            |output_buffer: &mut Vec<(Key, Value)>, entry| -> io::Result<()> {
+                output_buffer.push(entry);
+                //if we filled up our buffer, flush buffer to compaction file
+                if output_buffer.len() >= num_entries_per_page() {
+                    flush_output_buffer(output_buffer)?;
+                }
+                Ok(())
+            };
+
+        //put one entry from each buffer, NOTE: higher run number is younger
+        for run in (0..entry_counts.len()).rev() {
+            let entry_option = pull_entry(&mut input_buffers, run)?;
+            if entry_option.is_none() {
+                continue;
+            }
+            let (key, value) = entry_option.unwrap(); //NOTE: can unwrap safely because of earlier check
+            heap_insert(&mut heap, key, value, run);
+        }
+
+        let mut recent_key: Option<Key> = None;
+
+        //put entries into output buffer until there are no more entries to pull from any buffer
+        loop {
+            let entry_option = heap_swap_extract(&mut heap, &mut input_buffers)?;
+
+            if let Some((key, value)) = entry_option {
+                if recent_key.is_some_and(|recent| recent == key) {
+                    continue; //we already have inserted the value (or it we discarded its tombstone already)
+                }
+                if !discard_tombstones || value != Database::TOMBSTONE_VALUE {
+                    output_buffer_insert(&mut output_buffer, (key, value))?;
+                }
+                recent_key = Some(key);
+            } else {
+                //nothing in heap, should be done
+                break;
+            }
+        }
+        //flush remaining elements
+        flush_output_buffer(&mut output_buffer)?;
+        output.set_len((entries_written * ENTRY_SIZE) as u64)?; //set correct file size
+
+        //delete other runs
+        for path_result in fs::read_dir(filename::lsm_level_directory(db_name, level))? {
+            let path = path_result?.path();
+            if let Some(file_extension) = path.extension() {
+                if file_extension == filename::SST_FILE_EXTENSION {
+                    fs::remove_file(path)?;
+                }
+            }
+        }
+
+        //if we write no entries, then we should delete the compaction file instead and set entry counts to be empty (to represent the fact there are no more SST runs on this level)
+        if entries_written == 0 {
+            entry_counts.clear();
+            return fs::remove_file(&temp_file_name);
+        }
+
+        //By this point we know our compaction file has entries, so we rename it to an actual SST file name
+
+        fs::rename(&temp_file_name, filename::sst_path(db_name, level, 0))?;
+        *entry_counts = vec![entries_written];
+
+        Ok(())
+    }
+}
+
+mod tests {
+    use super::*;
+
+    #[allow(dead_code)]
+    fn setup_and_test_and_cleaup(db_name: &str, level: Level, mut test: Box<dyn FnMut()>) {
+        let dir = &filename::lsm_level_directory(db_name, level);
+        if std::path::Path::new(dir).exists() {
+            std::fs::remove_dir_all(dir).unwrap(); //remove previous directory if panicked during tests and didn't clean up
+        }
+        std::fs::create_dir_all(dir).unwrap();
+
+        test();
+
+        std::fs::remove_dir_all(db_name).unwrap();
+    }
+
+    #[test]
+    fn test_small_compaction() {
+        let db_name = "array_sst_compaction_small";
+        const LEVEL: Level = 0;
+        let test = || {
+            let sst = Sst {};
+            // let iter = 0..num_entries_per_page() as Key;
+            let entries0: Vec<(Key, Value)> = vec![(0, 0), (1, 0)];
+            let entries1: Vec<(Key, Value)> = vec![(0, 1), (1, 1)];
+            let expected_result: Vec<(Key, Value)> = entries1.clone();
+
+            let mut entry_counts = vec![entries0.len(), entries1.len()];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![expected_result.len()]);
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(compaction_entries, expected_result);
+        };
+        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
+    }
+
+    #[test]
+    fn test_small_compaction2() {
+        let db_name = "array_sst_compaction_small2";
+        const LEVEL: Level = 0;
+        let test = || {
+            let sst = Sst {};
+            // let iter = 0..num_entries_per_page() as Key;
+            let entries0: Vec<(Key, Value)> = vec![(0, 0), (2, 0)];
+            let entries1: Vec<(Key, Value)> = vec![(1, 1), (2, 1)];
+            let expected_result: Vec<(Key, Value)> = vec![(0, 0), (1, 1), (2, 1)];
+
+            let mut entry_counts = vec![entries0.len(), entries1.len()];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![expected_result.len()]);
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(compaction_entries, expected_result);
+        };
+        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
+    }
+
+    #[test]
+    fn test_interspersed_compaction() {
+        let db_name = "array_sst_interspersed_compaction";
+        const LEVEL: Level = 0;
+        let test = || {
+            let sst = Sst {};
+            let iter = 0..num_entries_per_page() as Key;
+            let mut entries0: Vec<(Key, Value)> = iter
+                .to_owned()
+                .skip(0)
+                .step_by(2)
+                .map(|key| (key, -key))
+                .collect();
+            let mut entries1: Vec<(Key, Value)> = iter
+                .to_owned()
+                .skip(1)
+                .step_by(2)
+                .map(|key| (key, key))
+                .collect();
+            let mut expected_result: Vec<(Key, Value)> = iter
+                .to_owned()
+                .map(|key| {
+                    if key % 2 == 0 {
+                        (key, -key)
+                    } else {
+                        (key, key)
+                    }
+                })
+                .collect();
+
+            //deleted value, but the newer SST has copy, so it should be in the result
+            let key = 99999;
+            entries0.push((key, Database::TOMBSTONE_VALUE));
+            entries1.push((key, 0));
+            expected_result.push((key, 0));
+
+            //deleted value in newer SST, expected result should not have it if we want to discard tombstones
+            //but if we don't discard tombstones it should in the compaction result
+            let key = 199999;
+            entries0.push((key, 100));
+            entries1.push((key, Database::TOMBSTONE_VALUE));
+            let no_tomstones_result = expected_result.clone();
+            expected_result.push((key, Database::TOMBSTONE_VALUE));
+
+            //TEST 1: test including tombstones
+            let mut entry_counts = vec![entries0.len(), entries1.len()];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![expected_result.len()]);
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(compaction_entries, expected_result);
+
+            //TEST 2: test discarding tombstones
+            let mut entry_counts = vec![entries0.len(), entries1.len()];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, true)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![no_tomstones_result.len()]);
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(compaction_entries, no_tomstones_result);
+            //make sure there are no tombstones
+            assert!(!compaction_entries
+                .iter()
+                .any(|(_, value)| { *value == Database::TOMBSTONE_VALUE }));
+        };
+        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
+    }
+
+    #[test]
+    fn test_compaction_edge_cases() {
+        let db_name = "array_sst_compaction_edge_cases";
+        const LEVEL: Level = 0;
+        let test = || {
+            let sst = Sst {};
+            let iter = 0..num_entries_per_page() as Key;
+            let entries0: Vec<(Key, Value)> = iter
+                .to_owned()
+                .skip(0)
+                .step_by(2)
+                .map(|key| (key, -key))
+                .collect();
+
+            //EDGE case tests
+
+            //EDGE CASE TEST 1: compacting a single sst with itself
+            let mut entry_counts = vec![entries0.len()];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(entry_counts, vec![entries0.len()]);
+            assert_eq!(compaction_entries, entries0);
+
+            //EDGE CASE TEST 2: compacting empty SST with a non empty one
+            let mut entry_counts = vec![entries0.len(), 0];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &[]).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(entry_counts, vec![entries0.len()]);
+            assert_eq!(compaction_entries, entries0);
+
+            //EDGE CASE TEST 3: compacting 2 empty SSTs
+            let mut entry_counts = vec![0, 0];
+            sst.write(db_name, LEVEL, 0, &[]).unwrap();
+            sst.write(db_name, LEVEL, 1, &[]).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![]);
+            assert!(sst.read(db_name, LEVEL, 0).is_err());
+
+            //EDGE CASE TEST 3: compacting 1 SST filled with tombstones
+            let entries0: Vec<(Key, Value)> = iter
+                .to_owned()
+                .skip(0)
+                .step_by(2)
+                .map(|key| (key, Database::TOMBSTONE_VALUE))
+                .collect();
+            let entries1: Vec<(Key, Value)> = iter
+                .to_owned()
+                .skip(1)
+                .step_by(2)
+                .map(|key| (key, Database::TOMBSTONE_VALUE))
+                .collect();
+            let expected_result: Vec<(Key, Value)> =
+                iter.map(|key| (key, Database::TOMBSTONE_VALUE)).collect();
+
+            //3.1: test with discard_tombstones disabled
+            let mut entry_counts = vec![entries0.len(), entries1.len()];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![expected_result.len()]);
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(compaction_entries, expected_result);
+
+            //3.2 test with discard_tombstones disabled
+            let mut entry_counts = vec![entries0.len(), entries1.len()];
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.compact(db_name, LEVEL, &mut entry_counts, true)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![]);
+            assert!(sst.read(db_name, LEVEL, 0).is_err());
+        };
+        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
+    }
+
+    #[test]
+    fn test_multi_compaction() {
+        let db_name = "array_sst_compaction";
+        const LEVEL: Level = 0;
+        let test = || {
+            let sst = Sst {};
+            let entries0: Vec<(Key, Value)> = vec![(0, 0), (1, 0), (32, 0), (64, 0)];
+            let entries1: Vec<(Key, Value)> = vec![(0, 1), (1, Database::TOMBSTONE_VALUE)];
+            let entries2: Vec<(Key, Value)> =
+                vec![(1, 2), (16, Database::TOMBSTONE_VALUE), (32, 2)];
+            let expected_result: Vec<(Key, Value)> = vec![
+                (0, 1),
+                (1, 2),
+                (16, Database::TOMBSTONE_VALUE),
+                (32, 2),
+                (64, 0),
+            ];
+            let mut entry_counts = vec![entries0.len(), entries1.len(), entries2.len()];
+
+            //TEST 1: without discarding tombstones
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.write(db_name, LEVEL, 2, &entries2).unwrap();
+
+            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![expected_result.len()]);
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(compaction_entries, expected_result);
+
+            //TEST 2: with discarding tombstones
+            let expected_result: Vec<(Key, Value)> = vec![(0, 1), (1, 2), (32, 2), (64, 0)];
+            let mut entry_counts = vec![entries0.len(), entries1.len(), entries2.len()];
+
+            sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            sst.write(db_name, LEVEL, 2, &entries2).unwrap();
+
+            sst.compact(db_name, LEVEL, &mut entry_counts, true)
+                .unwrap();
+
+            assert_eq!(entry_counts, vec![expected_result.len()]);
+
+            let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
+            assert_eq!(compaction_entries, expected_result);
+        };
+        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
     }
 }

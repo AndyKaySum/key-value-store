@@ -72,9 +72,9 @@ impl Database {
 
     //RESERVED VALUES BELOW (not allowed for normal input)
     ///Reserved tombstone value
-    const TOMBSTONE_VALUE: Value = Value::MIN;
+    pub const TOMBSTONE_VALUE: Value = Value::MIN;
     ///Reserved this value so we can use negative keys without errors in our min heap in scan (try negative 32::MIN and see what happens)
-    const INVALID_KEY: Key = Key::MIN;
+    pub const INVALID_KEY: Key = Key::MIN;
     ///Reserved DB name for when no DB is open (like a null value)
     const NO_OPEN_DB_NAME: &str = "";
 
