@@ -1,5 +1,5 @@
-use std::cmp; 
 use crate::util::bloom_hasher::BloomHasher;
+use std::cmp;
 
 trait BloomFilterTrait {
     fn set<T: AsRef<[u8]>>(&mut self, item: T);
@@ -47,15 +47,15 @@ impl BloomFilter {
     fn optimal_hash_num(bitmap_size: u64, items_count: usize) -> u32 {
         let m = bitmap_size as f64;
         let n = items_count as f64;
-    
+
         // Calculate the optimal number of hash functions k = (m/n) * ln(2)
         let hash_num = (m / n * std::f64::consts::LN_2).ceil() as u32;
-    
+
         // Fix lower bound 1
         cmp::max(hash_num, 1)
     }
 
-    // Should we be using this hash function? 
+    // Should we be using this hash function?
     // fn hash<T: AsRef<[u8]>>(&self, item: T, seed: u64) -> usize {
     //     let hash_value = Xxh3::hash_with_seed(item, seed);
     //     (hash_value as usize) % self.size
