@@ -8,7 +8,7 @@ trait BloomFilterTrait {
 }
 
 struct BloomFilter {
-    bit_vec: Vec<bool>,
+    bit_vec: Vec<u8>,
     size: usize,
     num_hash_functions: usize,
 }
@@ -16,15 +16,17 @@ struct BloomFilter {
 impl BloomFilter {
     pub fn new(size: usize, num_items: usize) -> BloomFilter {
         let hash_functions = Self::optimal_hash_num(size as u64, num_items) as usize;
+        let byte_size = (size + 7) / 8;  
+
         BloomFilter {
-            bit_vec: vec![false; size],
+            bit_vec: vec![0; byte_size],  
             size,
             num_hash_functions: hash_functions,
         }
     }
 
     // create a new bloom filter from a bit vector/sst
-    pub fn from_bit_vec(bit_vec: Vec<bool>) -> BloomFilter {
+    pub fn from_bit_vec(bit_vec: Vec<u8>) -> BloomFilter {
         let size = bit_vec.len();
         BloomFilter {
             bit_vec,
@@ -55,6 +57,13 @@ impl BloomFilter {
         cmp::max(hash_num, 1)
     }
 
+    // Helper to get the byte and bit index
+    fn get_byte_and_bit_index(&self, hash_value: u64) -> (usize, u8) {
+        let byte_index = (hash_value as usize % self.size) / 8;
+        let bit_index = (hash_value as u8) % 8;
+        (byte_index, bit_index)
+    }
+
     // Should we be using this hash function?
     // fn hash<T: AsRef<[u8]>>(&self, item: T, seed: u64) -> usize {
     //     let hash_value = Xxh3::hash_with_seed(item, seed);
@@ -77,8 +86,8 @@ impl BloomFilterTrait for BloomFilter {
     fn set<T: AsRef<[u8]>>(&mut self, item: T) {
         for i in 0..self.num_hash_functions as u64 {
             let hash_value = BloomHasher::hash(item.as_ref(), i as u64);
-            let index = hash_value as usize % self.size;
-            self.bit_vec[index] = true;
+            let (byte_index, bit_index) = self.get_byte_and_bit_index(hash_value);
+            self.bit_vec[byte_index] |= 1 << bit_index;
         }
     }
 
@@ -86,8 +95,8 @@ impl BloomFilterTrait for BloomFilter {
     fn has<T: AsRef<[u8]>>(&self, item: T) -> bool {
         for i in 0..self.num_hash_functions as u64 {
             let hash_value = BloomHasher::hash(item.as_ref(), i as u64);
-            let index = hash_value as usize % self.size;
-            if !self.bit_vec[index] {
+            let (byte_index, bit_index) = self.get_byte_and_bit_index(hash_value);
+            if (self.bit_vec[byte_index] & (1 << bit_index)) == 0 {
                 return false;
             }
         }
@@ -96,7 +105,8 @@ impl BloomFilterTrait for BloomFilter {
 
     // Reset the Bloom Filter
     fn reset(&mut self) {
-        self.bit_vec = vec![false; self.size];
+        let byte_size = (self.size + 7) / 8;
+        self.bit_vec = vec![0; byte_size];
     }
 }
 
