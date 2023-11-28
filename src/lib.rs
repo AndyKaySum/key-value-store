@@ -5,3 +5,4 @@ mod file_io;
 mod memtable;
 mod sst;
 pub mod util;
+mod bloom_filter;
