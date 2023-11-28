@@ -144,7 +144,6 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone , H: Hasher + Default + Deb
         let bucket = self.get_bucket(self.hash_key(&key) as usize).unwrap();
         let bucket = bucket.borrow_mut();
         let elements = bucket.get_elements();
-        // println!("Elements: {:?}", elements);
         for element in elements {
             if element.0 == key {
                 return Some(element.1.clone())
@@ -237,7 +236,6 @@ fn put(&mut self, key: K, value: V) -> bool{
                 self.add_to_directory(bucket2.clone(), i as usize);
             }
         } 
-        println!("Len bucket1: {} len bucket2: {}", bucket1.borrow().get_elements().len(), bucket2.borrow().get_elements().len());
         assert!(!self.get_bucket(index).unwrap().borrow().is_full()); 
     }
     true
@@ -303,22 +301,16 @@ mod extendible_hash_table_tests {
 
     use super::*;
     #[test]
-    fn test_test() {
+    fn main_test() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(100);
 
         assert_eq!(hash_table.get_global_depth(), 2);
         assert_eq!(hash_table.get_max_size(), 100); 
-        // let mut rng = rand::thread_rng();
-        let iters = 10; 
-        // panic!("Herio");
+        let iters = 1000; 
         for i in 0..iters{
-            // let random_key = rng.gen::<i32>(); // Generates a random u32
             hash_table.put(i, i);
-            // println!("Index of {}: {}", i, hash_table.hash_key(&i));
         }
-        // hash_table.put(69, 1000); 
         
-        println!("Global depth: {}", hash_table.get_global_depth());
         for i in 0..iters{
             println!("Getting element: {} from bucket {}", i, hash_table.hash_key(&i));
             println!("Element: {:?}", hash_table.get(i).unwrap());
@@ -328,8 +320,6 @@ mod extendible_hash_table_tests {
             println!("Bucket: {:?} ({}) is full? {} size {} capacity {}",borrowed_bucket.get_elements(), borrowed_bucket.get_bucket_id(), borrowed_bucket.is_full(), borrowed_bucket.get_size(), borrowed_bucket.capacity);
         }
         println!("Global depth: {}", hash_table.get_global_depth());
-        // println!("Bucket elements: {:?} local depeth: {}", hash_table.get_bucket(25).unwrap().borrow().get_elements(), hash_table.get_bucket(25).unwrap().borrow().get_local_depth());
-        // println!("{}", hash_table.get(69).unwrap());
         println!("get next: {:?}", hash_table.get_next(8));
     }
     fn test_put_and_get() {
