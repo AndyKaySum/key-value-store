@@ -1,12 +1,18 @@
 use crate::{
     buffer_pool::BufferPool,
+    ceil_div,
     file_io::{direct_io, serde_entry},
     util::{
         filename,
-        types::{Key, Level, Page, Run, Value},
+        system_info::num_entries_per_page,
+        types::{Key, Level, Page, Run, Size, Value},
     },
 };
 use std::io;
+
+pub fn num_pages(num_entries: Size) -> Size {
+    ceil_div!(num_entries, num_entries_per_page())
+}
 
 pub fn get_page(
     path: &str,

@@ -1,6 +1,5 @@
 use crate::{
     buffer_pool::BufferPool,
-    ceil_div,
     db::Database,
     file_io::{
         direct_io,
@@ -8,7 +7,7 @@ use crate::{
             self, deserialize, deserialize_entry_within_page, deserialize_from, serialize_into,
         },
     },
-    sst::sst_util::get_entries_at_page,
+    sst::sst_util::{get_entries_at_page, num_pages},
     util::{
         filename,
         system_info::{self, num_entries_per_page, ENTRY_SIZE},
@@ -238,7 +237,7 @@ impl SortedStringTable for Sst {
         let num_runs = entry_counts.len(); //Number of SST runs
         let page_counts: Vec<Size> = entry_counts
             .iter()
-            .map(|num_entries| ceil_div!(num_entries, num_entries_per_page()))
+            .map(|num_entries| num_pages(*num_entries))
             .collect(); //Number of pages in each SST run
 
         let get_entries =
