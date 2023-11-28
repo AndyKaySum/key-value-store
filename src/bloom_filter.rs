@@ -16,10 +16,10 @@ struct BloomFilter {
 impl BloomFilter {
     pub fn new(size: usize, num_items: usize) -> BloomFilter {
         let hash_functions = Self::optimal_hash_num(size as u64, num_items) as usize;
-        let byte_size = (size + 7) / 8;  
+        let byte_size = (size + 7) / 8;
 
         BloomFilter {
-            bit_vec: vec![0; byte_size],  
+            bit_vec: vec![0; byte_size],
             size,
             num_hash_functions: hash_functions,
         }
@@ -35,22 +35,11 @@ impl BloomFilter {
         }
     }
 
-    // Create a new Bloom Filter from sst page
-    // pub fn from_sst_page(page: Vec<u8>) -> BloomFilter {
-    //     // TODO
-    // }
-
-    // Create a new Bloom Filter with a specified false positive rate
-    pub fn new_for_fpr(items_count: usize, fp_p: f64) -> Self {
-        let bitmap_size = Self::compute_bitmap_size(items_count, fp_p);
-        BloomFilter::new(bitmap_size, items_count)
-    }
-
     fn optimal_hash_num(bitmap_size: u64, items_count: usize) -> u32 {
         let m = bitmap_size as f64;
         let n = items_count as f64;
 
-        // Calculate the optimal number of hash functions k = (m/n) * ln(2)
+        // Calculate the optimal number of hash functions (m/n) * ln(2)
         let hash_num = (m / n * std::f64::consts::LN_2).ceil() as u32;
 
         // Fix lower bound 1
@@ -62,22 +51,6 @@ impl BloomFilter {
         let byte_index = (hash_value as usize % self.size) / 8;
         let bit_index = (hash_value as u8) % 8;
         (byte_index, bit_index)
-    }
-
-    // Should we be using this hash function?
-    // fn hash<T: AsRef<[u8]>>(&self, item: T, seed: u64) -> usize {
-    //     let hash_value = Xxh3::hash_with_seed(item, seed);
-    //     (hash_value as usize) % self.size
-    // }
-
-    // Compute a recommended bitmap size for num_items items
-    // and a fpr rate of false positives.
-    pub fn compute_bitmap_size(num_items: usize, fpr: f64) -> usize {
-        assert!(num_items > 0);
-        assert!(fpr > 0.0 && fpr < 1.0);
-        let log2 = std::f64::consts::LN_2;
-        let log2_2 = log2 * log2;
-        ((num_items as f64) * f64::ln(fpr) / (-8.0 * log2_2)).ceil() as usize
     }
 }
 
