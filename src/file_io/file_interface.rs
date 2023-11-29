@@ -40,5 +40,5 @@ pub fn rename_file(
     if let Some(pool) = buffer_pool {
         pool.rename(old_path, new_path)
     }
-    std::fs::rename(old_path, &new_path)
+    std::fs::rename(old_path, new_path)
 }

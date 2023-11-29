@@ -295,7 +295,7 @@ impl Database {
             entry_counts.get(level).is_some(),
             "Level {level} does not exist, cannot flush"
         );
-        if entry_counts[level].len() == 0 {
+        if entry_counts[level].is_empty() {
             return; //Nothing to flush to the next level
         }
 
@@ -374,7 +374,7 @@ impl Database {
             compact(db);
 
             //check if we reached our size limit for this level, if so, move our compacted run to next level
-            let num_entries = db.metadata.entry_counts[level].get(0).unwrap_or(&0);
+            let num_entries = db.metadata.entry_counts[level].first().unwrap_or(&0);
             let lower_lvl_run_size = db.config.memtable_capacity * size_ratio.pow(level as u32 - 1);
             if ceil_div!(num_entries, lower_lvl_run_size) >= size_ratio {
                 db.move_runs(level)
@@ -390,7 +390,6 @@ impl Database {
 
         match self.config.compaction_policy {
             CompactionPolicy::None => {
-                return;
             }
             CompactionPolicy::Leveled | CompactionPolicy::Basic => leveled_compact(self),
             CompactionPolicy::Tiered => tiered_compact(self),
