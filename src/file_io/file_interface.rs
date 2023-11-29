@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{util::types::Page, buffer_pool::BufferPool};
+use crate::{buffer_pool::BufferPool, util::types::Page};
 
 use super::direct_io;
 
@@ -32,7 +32,11 @@ pub fn remove_file(path: &str, buffer_pool: Option<&mut BufferPool>) -> io::Resu
     std::fs::remove_file(path)
 }
 
-pub fn rename_file(old_path: &str, new_path: &str, buffer_pool: Option<&mut BufferPool>) -> io::Result<()> {
+pub fn rename_file(
+    old_path: &str,
+    new_path: &str,
+    buffer_pool: Option<&mut BufferPool>,
+) -> io::Result<()> {
     if let Some(pool) = buffer_pool {
         pool.rename(old_path, new_path)
     }

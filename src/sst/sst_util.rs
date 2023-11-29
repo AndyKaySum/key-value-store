@@ -1,7 +1,7 @@
 use crate::{
     buffer_pool::BufferPool,
     ceil_div,
-    file_io::{serde_entry, file_interface},
+    file_io::{file_interface, serde_entry},
     util::{
         filename,
         system_info::num_entries_per_page,

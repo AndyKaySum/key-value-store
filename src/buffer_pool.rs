@@ -124,11 +124,11 @@ impl BufferPool {
     /// NOTE: as a side effect this will remove any evicted pages indexes from filename_pages (which is good)
     pub fn rename(&mut self, old_path: &str, new_path: &str) {
         let mut new_page_indexes = LinkedList::<Page>::new();
-        
+
         if let Some(page_indexes) = self.filename_pages.get(old_path) {
             for page in page_indexes {
                 let frame_option = self.frames.remove(&(old_path.to_string(), *page));
-                
+
                 //is Some() only if the page hasn't been evicted
                 if let Some(frame) = frame_option {
                     self.frames.insert((new_path.to_string(), *page), frame);
@@ -137,7 +137,8 @@ impl BufferPool {
             }
         }
         self.filename_pages.remove(old_path);
-        self.filename_pages.insert(new_path.to_string(), new_page_indexes);
+        self.filename_pages
+            .insert(new_path.to_string(), new_page_indexes);
     }
 }
 

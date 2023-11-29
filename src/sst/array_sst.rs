@@ -2,10 +2,10 @@ use crate::{
     buffer_pool::BufferPool,
     db::Database,
     file_io::{
-        direct_io,
+        direct_io, file_interface,
         serde_entry::{
             self, deserialize, deserialize_entry_within_page, deserialize_from, serialize_into,
-        }, file_interface,
+        },
     },
     sst::sst_util::{get_entries_at_page, num_pages},
     util::{
@@ -233,7 +233,7 @@ impl SortedStringTable for Sst {
         level: Level,
         entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
-        mut buffer_pool: Option<&mut BufferPool>
+        mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<()> {
         let num_runs = entry_counts.len(); //Number of SST runs
 
@@ -381,7 +381,10 @@ impl SortedStringTable for Sst {
             if let Some(file_extension) = path.extension() {
                 if file_extension == filename::SST_FILE_EXTENSION {
                     // fs::remove_file(path)?;
-                    file_interface::remove_file(path.as_os_str().to_str().unwrap(), buffer_pool.as_deref_mut())?//TODO: change function to use path directly
+                    file_interface::remove_file(
+                        path.as_os_str().to_str().unwrap(),
+                        buffer_pool.as_deref_mut(),
+                    )? //TODO: change function to use path directly
                 }
             }
         }

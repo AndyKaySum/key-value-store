@@ -1,6 +1,6 @@
 use std::{fs, io};
 
-use crate::file_io::{serde_entry, file_interface};
+use crate::file_io::{file_interface, serde_entry};
 use crate::sst::btree_util::num_leaves;
 use crate::util::algorithm::{
     binary_search_entries, binary_search_leftmost, binary_search_rightmost,
@@ -226,14 +226,20 @@ impl SortedStringTable for Sst {
         level: Level,
         entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
-        mut buffer_pool: Option<&mut BufferPool>
+        mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<()> {
         if entry_counts.len() < 2 {
             return Ok(()); //Nothing to compact
         }
 
         //Step 1: compact file containing entries
-        array_sst::Sst.compact(db_name, level, entry_counts, discard_tombstones, buffer_pool.as_deref_mut())?;
+        array_sst::Sst.compact(
+            db_name,
+            level,
+            entry_counts,
+            discard_tombstones,
+            buffer_pool.as_deref_mut(),
+        )?;
 
         //remove existing B-tree files
         for path_result in fs::read_dir(filename::lsm_level_directory(db_name, level))? {
@@ -241,7 +247,10 @@ impl SortedStringTable for Sst {
             if let Some(file_extension) = path.extension() {
                 if file_extension == filename::BTREE_FILE_EXTENSION {
                     // fs::remove_file(path)?;
-                    file_interface::remove_file(path.as_os_str().to_str().unwrap(), buffer_pool.as_deref_mut())?//TODO: change function to use path directly
+                    file_interface::remove_file(
+                        path.as_os_str().to_str().unwrap(),
+                        buffer_pool.as_deref_mut(),
+                    )? //TODO: change function to use path directly
                 }
             }
         }

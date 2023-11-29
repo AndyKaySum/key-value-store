@@ -57,6 +57,6 @@ pub trait SortedStringTable {
         level: Level,
         entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
-        buffer_pool: Option<&mut BufferPool>
+        buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<()>;
 }
