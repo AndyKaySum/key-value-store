@@ -199,7 +199,8 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
             let bucket = self.get_bucket(index).unwrap().borrow();
             (bucket.get_local_depth(), bucket.is_full())
         };
-        if !is_full { // if the bucket is not full, add the element. 
+        if !is_full {
+            // if the bucket is not full, add the element.
             self.get_bucket_mut(index)
                 .unwrap()
                 .borrow_mut()

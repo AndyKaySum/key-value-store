@@ -1,5 +1,5 @@
 use crate::{
-    avl::AvlTree,
+    data_structures::avl::AvlTree,
     util::types::{Key, Size, Value},
 };
 
