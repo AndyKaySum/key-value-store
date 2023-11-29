@@ -14,8 +14,8 @@ struct BloomFilter {
 }
 
 impl BloomFilter {
-    pub fn new(size: usize, num_items: usize) -> BloomFilter {
-        let hash_functions = Self::optimal_hash_num(size as u64, num_items) as usize;
+    pub fn new(size: usize, num_entries: usize) -> BloomFilter {
+        let hash_functions = Self::optimal_hash_num(size as u64, num_entries) as usize;
         let byte_size = (size + 7) / 8;
 
         BloomFilter {
@@ -25,8 +25,14 @@ impl BloomFilter {
         }
     }
 
-    // create a new bloom filter from a bit vector/sst
-    pub fn from_bit_vec(bit_vec: Vec<u8>) -> BloomFilter {
+    // create a new bloom filter with specific bits per entry and number of entries num_entries
+    pub fn new_with_bits_per_entry(bits_per_entry: usize, num_entries: usize) -> BloomFilter {
+        let size = bits_per_entry * num_entries;
+        BloomFilter::new(size, num_entries)
+    }
+
+    // create a new bloom filter from a bit vector
+    pub fn new_from_bit_vec(bit_vec: Vec<u8>) -> BloomFilter {
         let size = bit_vec.len();
         BloomFilter {
             bit_vec,
@@ -35,9 +41,9 @@ impl BloomFilter {
         }
     }
 
-    fn optimal_hash_num(bitmap_size: u64, items_count: usize) -> u32 {
+    fn optimal_hash_num(bitmap_size: u64, num_entries: usize) -> u32 {
         let m = bitmap_size as f64;
-        let n = items_count as f64;
+        let n = num_entries as f64;
 
         // Calculate the optimal number of hash functions (m/n) * ln(2)
         let hash_num = (m / n * std::f64::consts::LN_2).ceil() as u32;
@@ -110,7 +116,7 @@ mod tests {
     fn test_bloom_filter_false_positive() {
         // Create a new Bloom filter
         let mut bloom_filter = BloomFilter::new(1, 10);
-
+        // Assuming no collisions here, maybe noy true
         bloom_filter.set("one");
         bloom_filter.set("two");
         bloom_filter.set("three");
