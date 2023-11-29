@@ -11,7 +11,7 @@ pub type Page = usize; //Page index (assumes consistent page sizes)
 pub type Depth = usize; //Depth in a B-tree
 pub type Node = usize; //Node index in a B-tree
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum CompactionPolicy {
     None,
     Basic,
