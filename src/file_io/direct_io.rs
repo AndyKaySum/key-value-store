@@ -17,7 +17,7 @@ fn direct_io_flags() -> i32 {
     // Unix-specific code
     extern crate libc;
     //NOTE: O_DIRECT is not available on apple silicon, seems like they can't do direct I/O (need to confirm)
-    libc::O_DIRECT //TODO: test this on a unix system
+    libc::O_DIRECT
 }
 
 #[cfg(windows)]

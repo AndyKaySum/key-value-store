@@ -1,6 +1,9 @@
 use csc443_project::{
     db::Database,
-    util::types::{Key, Value, ENTRY_SIZE},
+    util::{
+        system_info::ENTRY_SIZE,
+        types::{Key, Value},
+    },
 };
 
 use crate::benchmarker::Benchmarker;

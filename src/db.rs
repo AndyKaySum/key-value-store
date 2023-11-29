@@ -7,11 +7,11 @@ use std::{
 use crate::{
     buffer_pool::BufferPool,
     memtable::Memtable,
-    sst::{array_sst, SortedStringTable},
+    sst::{array_sst, btree_sst, SortedStringTable},
     util::filename,
     util::{
-        system_info,
-        types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value, ENTRY_SIZE},
+        system_info::{self, ENTRY_SIZE},
+        types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value},
     },
 };
 
@@ -42,13 +42,13 @@ impl Config {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Metadata {
-    sst_counts: Vec<Size>, //number of SSTs in each level
+    entry_counts: Vec<Vec<Size>>, //number of entries in each SST (outer index: Level, inner Index: run)
 }
 
 impl Metadata {
     fn new() -> Self {
         Self {
-            sst_counts: vec![0],
+            entry_counts: vec![vec![]],
         }
     }
 }
@@ -158,6 +158,13 @@ impl Database {
     fn is_closed(&self) -> bool {
         self.name == Self::NO_OPEN_DB_NAME
     }
+    ///Gets number of SSTs in level, NOTE: a value of 0 can mean that there is no level
+    fn sst_count(&self, level: Level) -> Size {
+        match self.metadata.entry_counts.get(level) {
+            None => 0,
+            Some(level_entry_counts) => level_entry_counts.len(),
+        }
+    }
     //GETTERS AND SETTERS (end)
 
     fn write_config_file(&self) {
@@ -245,9 +252,10 @@ impl Database {
     }
     ///compacts depending on number of ssts at level and compaction policy
     fn handle_compaction(&mut self, level: Level) {
-        let _num_runs = self.metadata.sst_counts[level];
+        let _num_runs = self.sst_count(level);
         let _max_runs = self.config.sst_size_ratio.pow(level as u32);
         let has_flushed_level = false;
+        let num_entries_after_compaction = 0; //Number of entries after compaction step
         match self.config.compaction_policy {
             CompactionPolicy::None => {
                 return;
@@ -258,26 +266,29 @@ impl Database {
             _ => {} //TODO: handle compaction for policies we plan to implement
         }
         //if we flushed, we need to potentially handle compaction for the next level
-        if has_flushed_level {
-            if self.metadata.sst_counts.get(level + 1).is_none() {
+        if has_flushed_level && num_entries_after_compaction > 0 {
+            if self.metadata.entry_counts.get(level + 1).is_none() {
                 //new level created, with a single sst
-                self.metadata.sst_counts.push(1);
+                self.metadata.entry_counts[level].push(num_entries_after_compaction);
             }
             self.handle_compaction(level + 1)
         }
     }
-    fn sst_interface(&self) -> impl SortedStringTable {
+    fn sst_interface(&self) -> Box<dyn SortedStringTable> {
         match self.config.sst_implementation {
-            SstImplementation::Array => array_sst::Sst {},
-            SstImplementation::Btree => {
-                array_sst::Sst {} //TODO: change in step 2.3
-            }
+            SstImplementation::Array => Box::new(array_sst::Sst {}),
+            SstImplementation::Btree => Box::new(btree_sst::Sst {}),
         }
     }
     ///Writes memtable contents to disk, clears memtable, and handles compaction if needed
     fn flush_memtable(&mut self) {
+        if self.memtable.len() < 1 {
+            //shouldn't flush if there's nothing to flush
+            return;
+        }
+
         let level = Self::LEVEL_ZERO;
-        let next_run_num = self.metadata.sst_counts[level];
+        let next_run_num = self.sst_count(level);
 
         //Write memtable to memory
         let sst = self.sst_interface();
@@ -285,7 +296,7 @@ impl Database {
         if let Err(why) = sst.write(&self.name, level, next_run_num, &entries) {
             panic!("Failed to flush memtable to SST, reason: {why}");
         };
-        self.metadata.sst_counts[level] += 1;
+        self.metadata.entry_counts[level].push(entries.len());
 
         self.handle_compaction(level);
 
@@ -327,11 +338,11 @@ impl Database {
         self.put_unchecked(key, Self::TOMBSTONE_VALUE);
     }
     ///For each sst, from youngest to oldest, run a callback function (the callback returns true if we want to return early)
-    fn for_each_sst(sst_counts: &[Size], callback: &mut dyn FnMut(Level, Run) -> bool) {
-        for (level, runs_in_level) in sst_counts.iter().enumerate() {
+    fn for_each_sst(entry_counts: &[Vec<Size>], callback: &mut dyn FnMut(Level, Run) -> bool) {
+        for (level, level_entry_counts) in entry_counts.iter().enumerate() {
             //lower level is younger
-            // let runs_in_level = sst_counts[level];
-            for run in (0..*runs_in_level).rev() {
+            let runs_in_level = level_entry_counts.len();
+            for run in (0..runs_in_level).rev() {
                 //higher number sst is younger
                 if callback(level, run) {
                     return;
@@ -355,8 +366,9 @@ impl Database {
         } else {
             None
         };
+        let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.get(&self.name, level, run, key, buffer_pool.take()) {
+            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.take()) {
                 Err(why) => panic!("Something went wrong trying to get key {key} at level {level}, sst {run}, reason: {why}"),
                 Ok(get_attempt_result) => {
                     if get_attempt_result.is_none() {
@@ -367,7 +379,7 @@ impl Database {
                 }
             }
         };
-        Self::for_each_sst(&self.metadata.sst_counts, &mut callback);
+        Self::for_each_sst(&self.metadata.entry_counts, &mut callback);
         if sst_search_result.is_some_and(|value| value == Self::TOMBSTONE_VALUE) {
             return None;
         }
@@ -392,8 +404,9 @@ impl Database {
         } else {
             None
         };
+        let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.scan(&self.name, level, run, key1, key2, buffer_pool.take()) {
+            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.take()) {
                 Err(why) => panic!("Something went wrong trying to scan range ({key1} to {key2}) at level {level}, sst {run}, reason: {why}"),
                 Ok(scan_result) => {
                     for (key, value) in scan_result {
@@ -407,7 +420,7 @@ impl Database {
             }
             false
         };
-        Self::for_each_sst(&self.metadata.sst_counts, &mut callback);
+        Self::for_each_sst(&self.metadata.entry_counts, &mut callback);
         let mut sorted_values = Vec::with_capacity(max_heap.len());
         while let Some((negative_key, value)) = max_heap.pop() {
             if value != Self::TOMBSTONE_VALUE {
@@ -428,167 +441,333 @@ impl Drop for Database {
 
 #[cfg(test)]
 mod tests {
+    use crate::util::btree_info::fanout;
+
     use super::*;
 
-    #[test]
-    fn test_small() {
-        let test_dir = "unit_tests_temp";
+    fn setup_and_test_and_cleaup(
+        test_name: &str,
+        database_alterations: &mut dyn FnMut(Database) -> Database,
+        test: &mut dyn FnMut(Database) -> Database,
+    ) {
+        let test_dir = test_name;
         let db_name = format!("{test_dir}/test");
         if std::path::Path::new(test_dir).exists() {
             std::fs::remove_dir_all(test_dir).unwrap(); //remove previous directory if panicked during tests and didn't clean up
         }
         std::fs::create_dir_all(test_dir).unwrap();
 
-        let mut db = Database::open(&db_name).set_memtable_capacity(2);
-
-        //Test puts, and check if younger values are used instead of older values in gets
-        db.put(0, 1); //This value should be immediately replaced
-        assert_eq!(db.get(0), Some(1));
-        db.put(0, 2);
-        assert_eq!(db.get(0), Some(2)); //This value should be replaced after flushing
-        db.put(10, 100);
-        db.put(20, 200);
-        db.put(0, 3); //original value of 0, should have been flushed
-        assert_eq!(db.get(0), Some(3)); //case: memtable "blocking" sst search
-        db.put(30, 300);
-        db.put(40, 400);
-        assert_eq!(db.get(0), Some(3)); //case: sst blocking older sst search
-        db.put(0, 10);
-
-        assert_eq!(db.metadata.sst_counts[0], 3); // Should have flushed 2 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
-
-        //Test gets
-        assert_eq!(db.get(0), Some(10));
-        assert_eq!(db.get(20), Some(200));
-        assert_eq!(db.get(10), Some(100));
-        assert_eq!(db.get(40), Some(400));
-        assert_eq!(db.get(30), Some(300));
-        assert_eq!(db.get(-1), None);
-        assert_eq!(db.get(1), None);
-        assert_eq!(db.get(300), None);
-        assert_eq!(db.get(400), None);
-
-        //test scans
-        assert_eq!(db.scan(1, 19), vec![(10, 100)]);
-        assert_eq!(db.scan(0, 19), vec![(0, 10), (10, 100)]);
-        assert_eq!(db.scan(1, 20), vec![(10, 100), (20, 200)]);
-        assert_eq!(db.scan(0, 20), vec![(0, 10), (10, 100), (20, 200)]);
-        assert_eq!(
-            db.scan(-1, 9999),
-            vec![(0, 10), (10, 100), (20, 200), (30, 300), (40, 400)]
-        );
-
-        //Test deletes
-        db.delete(30);
-        db.delete(20);
-        assert_eq!(db.get(30), None);
-        assert_eq!(db.get(20), None);
-        assert_eq!(db.get(0), Some(10));
-        assert_eq!(db.get(10), Some(100));
-        assert_eq!(db.get(40), Some(400));
-
-        //Test how deletes affect scan
-        assert_eq!(db.scan(1, 19), vec![(10, 100)]);
-        assert_eq!(db.scan(0, 19), vec![(0, 10), (10, 100)]);
-        assert_eq!(db.scan(1, 20), vec![(10, 100)]);
-        assert_eq!(db.scan(0, 20), vec![(0, 10), (10, 100)]);
-        assert_eq!(db.scan(-1, 9999), vec![(0, 10), (10, 100), (40, 400)]);
+        let mut db = test(database_alterations(Database::open(&db_name)));
 
         db.close();
 
         std::fs::remove_dir_all(test_dir).unwrap();
     }
 
-    #[test]
-    fn test_large() {
-        //Setup
-        let test_dir = "unit_tests_large_temp";
-        let db_name = format!("{test_dir}/test");
-        if std::path::Path::new(test_dir).exists() {
-            std::fs::remove_dir_all(test_dir).unwrap(); //remove previous directory if panicked during tests and didn't clean up
-        }
-        std::fs::create_dir_all(test_dir).unwrap();
+    fn small_db_test(test_name: &str, database_alterations: &mut dyn FnMut(Database) -> Database) {
+        let mut alterations = |db: Database| {
+            database_alterations(db).set_memtable_capacity(2) //memtable capacity needed for tests below
+        };
+        let mut test = |mut db: Database| {
+            //Test puts, and check if younger values are used instead of older values in gets
+            db.put(0, 1); //This value should be immediately replaced
+            assert_eq!(db.get(0), Some(1));
+            db.put(0, 2);
+            assert_eq!(db.get(0), Some(2)); //This value should be replaced after flushing
+            db.put(10, 100);
+            db.put(20, 200);
+            db.put(0, 3); //original value of 0, should have been flushed
+            assert_eq!(db.get(0), Some(3)); //case: memtable "blocking" sst search
+            db.put(30, 300);
+            db.put(40, 400);
+            assert_eq!(db.get(0), Some(3)); //case: sst blocking older sst search
+            db.put(0, 10);
 
+            assert_eq!(db.sst_count(0), 3); // Should have flushed 3 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
+
+            //Test gets
+            assert_eq!(db.get(0), Some(10));
+            assert_eq!(db.get(20), Some(200));
+            assert_eq!(db.get(10), Some(100));
+            assert_eq!(db.get(40), Some(400));
+            assert_eq!(db.get(30), Some(300));
+            assert_eq!(db.get(-1), None);
+            assert_eq!(db.get(1), None);
+            assert_eq!(db.get(300), None);
+            assert_eq!(db.get(400), None);
+
+            //test scans
+            assert_eq!(db.scan(1, 19), vec![(10, 100)]);
+            assert_eq!(db.scan(0, 19), vec![(0, 10), (10, 100)]);
+            assert_eq!(db.scan(1, 20), vec![(10, 100), (20, 200)]);
+            assert_eq!(db.scan(0, 20), vec![(0, 10), (10, 100), (20, 200)]);
+            assert_eq!(
+                db.scan(-1, 9999),
+                vec![(0, 10), (10, 100), (20, 200), (30, 300), (40, 400)]
+            );
+
+            //Test deletes
+            db.delete(30);
+            db.delete(20);
+            assert_eq!(db.get(30), None);
+            assert_eq!(db.get(20), None);
+            assert_eq!(db.get(0), Some(10));
+            assert_eq!(db.get(10), Some(100));
+            assert_eq!(db.get(40), Some(400));
+
+            //Test how deletes affect scan
+            assert_eq!(db.scan(1, 19), vec![(10, 100)]);
+            assert_eq!(db.scan(0, 19), vec![(0, 10), (10, 100)]);
+            assert_eq!(db.scan(1, 20), vec![(10, 100)]);
+            assert_eq!(db.scan(0, 20), vec![(0, 10), (10, 100)]);
+            assert_eq!(db.scan(-1, 9999), vec![(0, 10), (10, 100), (40, 400)]);
+
+            db
+        };
+        setup_and_test_and_cleaup(test_name, &mut alterations, &mut test)
+    }
+
+    fn large_db_test(test_name: &str, database_alterations: &mut dyn FnMut(Database) -> Database) {
         let memtable_cap = 896; //3.5 pages (4096 bytes * 3.5/16)
-        let mut db = Database::open(&db_name).set_memtable_capacity(memtable_cap);
-        let range = -1000..1000; //3.5 pages of
-        let mut entries = Vec::<(Key, Value)>::new();
 
-        //Test puts
-        for i in range.into_iter() {
-            let entry = (i, i * 10);
-            db.put(entry.0, entry.1);
-            entries.push(entry);
-        }
+        let mut alterations = |db: Database| {
+            database_alterations(db).set_memtable_capacity(memtable_cap) //memtable capacity needed for tests below
+        };
+        let mut test = |mut db: Database| {
+            let (min, max) = (-1000, 1000);
+            let range = min..max + 1; //3.5 pages of
+            let mut entries = Vec::<(Key, Value)>::new();
 
-        assert_eq!(db.metadata.sst_counts[0], entries.len() / memtable_cap); //NOTE: this will be wrong if the previous call to this function panicked
+            //Test puts
+            for i in range.into_iter() {
+                let entry = (i, i * 10);
+                db.put(entry.0, entry.1);
+                entries.push(entry);
+            }
 
-        //Test gets
-        for (key, value) in entries.iter() {
-            assert_eq!(db.get(key.clone()), Some(value.clone()));
-        }
+            assert_eq!(db.sst_count(0), entries.len() / memtable_cap); //NOTE: this will be wrong if the previous call to this function panicked
 
-        //Test scans
-        //scan from [..i+1]
-        for i in 0..entries.len() {
-            let slice = entries[..i + 1].to_vec();
-            let scan = db.scan(entries.first().unwrap().0, entries[i].0);
-            assert_eq!(scan.len(), slice.len());
-            assert_eq!(scan, slice);
-        }
+            //Test gets
+            for (key, value) in entries.iter() {
+                assert_eq!(db.get(*key), Some(*value), "key: {key}");
+            }
 
-        //scan from [i..]
-        for i in 0..entries.len() {
-            let slice = entries[i..].to_vec();
-            let scan = db.scan(entries[i].0, entries.last().unwrap().0);
-            assert_eq!(scan.len(), slice.len());
-            assert_eq!(scan, slice);
-        }
+            //Test getting values that are not in the db
+            assert_eq!(db.get(min - 1000), None);
+            assert_eq!(db.get(max + 1000), None);
 
-        //scan from [i..j+1]
-        for i in (0..entries.len()).step_by(57) {
-            for j in (i..entries.len() - 1).step_by(37) {
-                let slice = entries[i..j + 1].to_vec();
-                let scan = db.scan(entries[i].0, entries[j].0);
+            //Test scans
+            //scan from [..i+1]
+            for i in 0..entries.len() {
+                let slice = entries[..i + 1].to_vec();
+                let scan = db.scan(entries.first().unwrap().0, entries[i].0);
+                assert_eq!(
+                    scan.len(),
+                    slice.len(),
+                    "scan range ({}, {}), scan results {:?}",
+                    entries.first().unwrap().0,
+                    entries[i].0,
+                    scan
+                );
+                assert_eq!(scan, slice);
+            }
+
+            //scan from [i..]
+            for i in 0..entries.len() {
+                let slice = entries[i..].to_vec();
+                let scan = db.scan(entries[i].0, entries.last().unwrap().0);
                 assert_eq!(scan.len(), slice.len());
                 assert_eq!(scan, slice);
             }
-        }
 
-        //Test overwriting existing keys
-        let step = 3;
-        for (key, value) in entries.iter().step_by(step) {
-            db.put(key.clone(), value * 2);
-        }
-        for (i, (key, value)) in entries.iter().enumerate() {
-            if i % step == 0 {
-                assert_eq!(db.get(key.clone()), Some(value * 2));
-            } else {
-                assert_eq!(db.get(key.clone()), Some(value.clone()));
+            //scan from [i..j+1]
+            for i in (0..entries.len()).step_by(57) {
+                for j in (i..entries.len() - 1).step_by(37) {
+                    let slice = entries[i..j + 1].to_vec();
+                    let scan = db.scan(entries[i].0, entries[j].0);
+                    assert_eq!(scan.len(), slice.len());
+                    assert_eq!(scan, slice);
+                }
             }
-        }
 
-        //Test deletes
-        let delete_step = 3; //NOTE: if this value is different from <step>, you'll need a new vec to hold onto the new db values that the prev test changed
-        for (key, _) in entries.iter().step_by(delete_step) {
-            db.delete(key.clone());
-            assert_eq!(db.get(key.clone()), None);
-        }
+            //Test scans that include keys outside of min and max of db
+            assert_eq!(db.scan(min - 1000, max + 1000), entries);
 
-        //Test how deletes affect scan
-        let filtered: Vec<(Key, Value)> = entries
-            .iter()
-            .enumerate()
-            .filter(|&(i, _)| i % delete_step != 0)
-            .map(|(_, v)| v.to_owned())
-            .collect(); //entries without every <delete_step>th element
-        let slice = &filtered;
-        let scan = db.scan(entries.first().unwrap().0, entries.last().unwrap().0);
-        assert_eq!(scan.len(), slice.len());
-        assert_eq!(scan, slice.to_vec());
+            //Test overwriting existing keys
+            let step = 3;
+            for (key, value) in entries.iter().step_by(step) {
+                db.put(*key, value * 2);
+            }
+            for (i, (key, value)) in entries.iter().enumerate() {
+                if i % step == 0 {
+                    assert_eq!(db.get(*key), Some(value * 2));
+                } else {
+                    assert_eq!(db.get(*key), Some(*value));
+                }
+            }
 
-        //cleanup
-        db.close();
-        std::fs::remove_dir_all(test_dir).unwrap();
+            //Test deletes
+            let delete_step = 3; //NOTE: if this value is different from <step>, you'll need a new vec to hold onto the new db values that the prev test changed
+            for (key, _) in entries.iter().step_by(delete_step) {
+                db.delete(*key);
+                assert_eq!(db.get(*key), None);
+            }
+
+            //Test how deletes affect scan
+            let filtered: Vec<(Key, Value)> = entries
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i % delete_step != 0)
+                .map(|(_, v)| v.to_owned())
+                .collect(); //entries without every <delete_step>th element
+            let slice = &filtered;
+            let scan = db.scan(entries.first().unwrap().0, entries.last().unwrap().0);
+            assert_eq!(scan.len(), slice.len());
+            assert_eq!(scan, slice.to_vec());
+
+            db
+        };
+
+        setup_and_test_and_cleaup(test_name, &mut alterations, &mut test)
+    }
+
+    fn multi_page_btree_single_sst_db_test(
+        test_name: &str,
+        database_alterations: &mut dyn FnMut(Database) -> Database,
+    ) {
+        let memtable_cap = fanout().pow(2) + 1; //Btrees will have 3 inner nodes and root
+
+        let mut alterations = |db: Database| {
+            database_alterations(db).set_memtable_capacity(memtable_cap) //memtable capacity needed for tests below
+        };
+        let mut test = |mut db: Database| {
+            let (min, max) = (0, memtable_cap as i64);
+            let range = min..max + 1; //1 extra to force a flush to sst
+            let mut entries = Vec::<(Key, Value)>::new();
+
+            //Test puts
+            for i in range.into_iter() {
+                let entry = (i, i * 10);
+                db.put(entry.0, entry.1);
+                entries.push(entry);
+            }
+
+            assert_eq!(db.sst_count(0), 1); //confirm that we have a single sst
+
+            //Test getting values that are not in the db
+            assert_eq!(db.get(min - 1000), None);
+            assert_eq!(db.get(max + 1000), None);
+
+            //Test gets
+            for (key, value) in entries.iter() {
+                assert_eq!(db.get(*key), Some(*value), "key: {key}");
+            }
+
+            //check that scan of db returns all entries
+            let scan_range = (entries.first().unwrap().0, entries.last().unwrap().0);
+            let scan = db.scan(scan_range.0, scan_range.1);
+            assert_eq!(
+                scan.len(),
+                entries.len(),
+                "scan range ({}, {})",
+                scan_range.0,
+                scan_range.1
+            );
+            assert_eq!(scan, entries);
+
+            //Test scans that include keys outside of min and max of db
+            assert_eq!(db.scan(min - 1000, max + 1000), entries);
+
+            //Test overwriting existing keys
+            let step = 3;
+            for (key, value) in entries.iter().step_by(step) {
+                db.put(*key, value * 2);
+            }
+            for (i, (key, value)) in entries.iter().enumerate() {
+                if i % step == 0 {
+                    assert_eq!(db.get(*key), Some(value * 2));
+                } else {
+                    assert_eq!(db.get(*key), Some(*value));
+                }
+            }
+
+            //Test deletes
+            let delete_step = step; //NOTE: if this value is different from <step>, you'll need a new vec to hold onto the new db values that the prev test changed
+            for (key, _) in entries.iter().step_by(delete_step) {
+                db.delete(*key);
+                assert_eq!(db.get(*key), None);
+            }
+
+            //Test how deletes affect scan
+            let filtered: Vec<(Key, Value)> = entries
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i % delete_step != 0)
+                .map(|(_, v)| v.to_owned())
+                .collect(); //entries without every <delete_step>th element
+            let slice = &filtered;
+            let scan = db.scan(entries.first().unwrap().0, entries.last().unwrap().0);
+            assert_eq!(scan.len(), slice.len());
+            assert_eq!(scan, slice.to_vec());
+
+            db
+        };
+
+        setup_and_test_and_cleaup(test_name, &mut alterations, &mut test)
+    }
+
+    fn part1_db_alterations(db: Database) -> Database {
+        db.set_compaction_policy(CompactionPolicy::None)
+            .set_enable_buffer_pool(false)
+            .set_sst_size_ratio(2)
+            .set_sst_implementation(SstImplementation::Array)
+            .set_buffer_pool_capacity(0)
+            .set_buffer_pool_initial_size(0)
+    }
+
+    fn part2_db_alterations(db: Database) -> Database {
+        db.set_compaction_policy(CompactionPolicy::None)
+            .set_enable_buffer_pool(false)
+            .set_sst_size_ratio(2)
+            .set_sst_implementation(SstImplementation::Btree)
+            .set_buffer_pool_capacity(64)
+            .set_buffer_pool_initial_size(16)
+    }
+
+    #[test]
+    fn part_1_test_small() {
+        small_db_test("part1_small_db_test", &mut part1_db_alterations);
+    }
+
+    #[test]
+    fn part1_test_large() {
+        large_db_test("part1_large_db_test", &mut part1_db_alterations);
+    }
+
+    #[test]
+    #[ignore = "Test case redundant with large test"]
+    fn part1_test_multi_page_btree_single_sst() {
+        multi_page_btree_single_sst_db_test(
+            "part1_multi_page_btree_single_sst_db_test",
+            &mut part1_db_alterations,
+        );
+    }
+
+    #[test]
+    fn part_2_test_small() {
+        small_db_test("part2_small_db_test", &mut part2_db_alterations);
+    }
+
+    #[test]
+    fn part2_test_large() {
+        large_db_test("part2_large_db_test", &mut part2_db_alterations);
+    }
+
+    #[test]
+    fn part2_test_multi_page_btree_single_sst() {
+        multi_page_btree_single_sst_db_test(
+            "part2_multi_page_btree_single_sst_db_test",
+            &mut part2_db_alterations,
+        );
     }
 }

@@ -1,5 +1,7 @@
 pub mod array_sst;
 pub mod btree_sst;
+mod btree_util;
+mod sst_util;
 
 use std::io;
 
@@ -17,7 +19,7 @@ pub trait SortedStringTable {
         db_name: &str,
         level: Level,
         run: Run,
-        array: &[(Key, Value)],
+        entries: &[(Key, Value)],
     ) -> io::Result<()>;
 
     ///Deserializes entire SST
@@ -30,6 +32,7 @@ pub trait SortedStringTable {
         level: Level,
         run: Run,
         key: Key,
+        num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Option<Value>>;
 
@@ -39,11 +42,20 @@ pub trait SortedStringTable {
         db_name: &str,
         level: Level,
         run: Run,
-        key1: Key,
-        key2: Key,
+        key_range: (Key, Key),
+        num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Vec<(Key, Value)>>;
 
     //Number of entries in SST
     fn len(&self, db_name: &str, level: Level, run: Run) -> io::Result<Size>;
+
+    ///Compact all SSTs in a level into a single SST
+    fn compact(
+        &self,
+        db_name: &str,
+        level: Level,
+        entry_counts: &[Size],
+        discard_tombstones: bool,
+    ) -> io::Result<Size>;
 }

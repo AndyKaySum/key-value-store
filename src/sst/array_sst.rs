@@ -1,48 +1,25 @@
-use serde_entry::{deserialize_from, serialize_into};
-use std::{fs, io}; //can swap "serde_entry" with "bincode" to swap functions
-
-use crate::file_io::{direct_io, serde_entry};
 use crate::{
     buffer_pool::BufferPool,
     file_io::{
-        direct_io::read_page,
-        serde_entry::{deserialize, deserialize_entry_within_page},
+        direct_io,
+        serde_entry::{
+            deserialize, deserialize_entry_within_page, deserialize_from, serialize_into,
+        },
     },
     util::{
-        filename, system_info,
-        types::{Key, Level, Page, Run, Size, Value, ENTRY_SIZE},
+        filename,
+        system_info::{self, ENTRY_SIZE},
+        types::{Key, Level, Run, Size, Value},
     },
 };
+use std::{fs, io};
 
-use super::SortedStringTable;
+use super::{sst_util::get_sst_page, SortedStringTable};
 
 fn index_to_2d_index(row_size: usize, index: usize) -> (usize, usize) {
     let row_index = index / row_size;
     let index_within_row = index % row_size;
     (row_index, index_within_row)
-}
-
-fn get_page(
-    db_name: &str,
-    level: Level,
-    run: Run,
-    page_index: Page,
-    buffer_pool: Option<&mut BufferPool>,
-) -> io::Result<Vec<u8>> {
-    if let Some(pool) = buffer_pool {
-        //NOTE: watch out for bugs from this, not super sure how things work out here
-        if let Some(page) = pool.get_sst_page(&level, &run, &page_index) {
-            Ok(page.to_vec())
-        } else {
-            let mut file = direct_io::open_read(&filename::sst_path(db_name, level, run))?;
-            let page_bytes = read_page(&mut file, page_index)?;
-            pool.insert_sst_page(&level, &run, &page_index, page_bytes.clone());
-            Ok(page_bytes)
-        }
-    } else {
-        let mut file = direct_io::open_read(&filename::sst_path(db_name, level, run))?;
-        read_page(&mut file, page_index)
-    }
 }
 
 pub struct Sst;
@@ -56,7 +33,7 @@ impl SortedStringTable for Sst {
         db_name: &str,
         level: Level,
         run: Run,
-        array: &[(Key, Value)],
+        entries: &[(Key, Value)],
     ) -> io::Result<()> {
         //create directory for the level if needed
         let directory = filename::lsm_level_directory(db_name, level);
@@ -66,7 +43,7 @@ impl SortedStringTable for Sst {
 
         let path = filename::sst_path(db_name, level, run);
         let mut file = direct_io::create(&path)?;
-        serialize_into(&mut file, array)?;
+        serialize_into(&mut file, entries)?;
         Ok(())
     }
 
@@ -82,10 +59,9 @@ impl SortedStringTable for Sst {
         level: Level,
         run: Run,
         key: Key,
+        num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Option<Value>> {
-        let num_entries = self.len(db_name, level, run)? as u64; //TODO: remove this and keep track of file sizes somewhere
-
         let mut curr_page_index = usize::MAX;
         let mut curr_page = Vec::<u8>::new();
 
@@ -97,7 +73,7 @@ impl SortedStringTable for Sst {
             if middle_page_index != curr_page_index {
                 curr_page_index = middle_page_index;
                 let bp = buffer_pool.as_deref_mut(); //NOTE: watch out for this, not quite sure if it will cause bugs, shouldn't though
-                curr_page = get_page(db_name, level, run, middle_page_index, bp)?;
+                curr_page = get_sst_page(db_name, level, run, middle_page_index, bp)?;
             };
             let middle_entry = deserialize_entry_within_page(&curr_page, entry_index)
                 .expect("Invalid number of bytes in page");
@@ -112,7 +88,9 @@ impl SortedStringTable for Sst {
             match middle_key.cmp(&key) {
                 std::cmp::Ordering::Less => left = middle_index + 1,
                 std::cmp::Ordering::Greater => right = middle_index - 1,
-                std::cmp::Ordering::Equal => return Ok(Some(middle_value)),
+                std::cmp::Ordering::Equal => {
+                    return Ok(Some(middle_value));
+                }
             };
         }
         Ok(None)
@@ -123,12 +101,11 @@ impl SortedStringTable for Sst {
         db_name: &str,
         level: Level,
         run: Run,
-        key1: Key,
-        key2: Key,
+        key_range: (Key, Key),
+        num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Vec<(Key, Value)>> {
-        let num_entries = self.len(db_name, level, run)? as u64; //TODO: remove this and keep track of file sizes somewhere
-
+        let (key1, key2) = key_range;
         let mut results: Vec<(Key, Value)> = Vec::new();
 
         //hold onto the current page we're looking at to avoid some repeated deserialization
@@ -143,7 +120,7 @@ impl SortedStringTable for Sst {
             if middle_page_index != curr_page_index {
                 curr_page_index = middle_page_index;
                 let bp = buffer_pool.as_deref_mut(); //NOTE: watch out for this (.as_deref_mut), not quite sure if it will cause bugs, shouldn't though
-                curr_page = get_page(db_name, level, run, middle_page_index, bp)?;
+                curr_page = get_sst_page(db_name, level, run, middle_page_index, bp)?;
             };
             let (middle_key, _) = deserialize_entry_within_page(&curr_page, entry_index)
                 .expect("Invalid number of bytes in page");
@@ -202,7 +179,7 @@ impl SortedStringTable for Sst {
         let upperbound_bound_page = if curr_page_index == lowerbound_page_index {
             curr_page.to_owned()
         } else {
-            get_page(
+            get_sst_page(
                 db_name,
                 level,
                 run,
@@ -215,7 +192,7 @@ impl SortedStringTable for Sst {
         let lower_bound_page = if curr_page_index == lowerbound_page_index {
             curr_page
         } else {
-            get_page(
+            get_sst_page(
                 db_name,
                 level,
                 run,
@@ -230,7 +207,7 @@ impl SortedStringTable for Sst {
         results.extend_from_slice(lowerbound_entries);
 
         for i in (lowerbound_page_index + 1)..upperbound_page_index {
-            let page = get_page(db_name, level, run, i, buffer_pool.as_deref_mut())?;
+            let page = get_sst_page(db_name, level, run, i, buffer_pool.as_deref_mut())?;
             let page_entries = &deserialize(&page).unwrap_or_else(|_| panic!("Unable to deserialize page during scan, level: {level}, run: {run} page_index: {i}"));
 
             results.extend(page_entries);
@@ -245,5 +222,15 @@ impl SortedStringTable for Sst {
             .metadata()?
             .len();
         Ok(byte_count as Size / ENTRY_SIZE)
+    }
+
+    fn compact(
+        &self,
+        _db_name: &str,
+        _level: Level,
+        _entry_counts: &[Size],
+        _discard_tombstones: bool,
+    ) -> io::Result<Size> {
+        unimplemented!()
     }
 }
