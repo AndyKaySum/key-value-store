@@ -5,7 +5,7 @@ use crate::{
         direct_io,
         serde_entry::{
             self, deserialize, deserialize_entry_within_page, deserialize_from, serialize_into,
-        },
+        }, file_interface,
     },
     sst::sst_util::{get_entries_at_page, num_pages},
     util::{
@@ -233,6 +233,7 @@ impl SortedStringTable for Sst {
         level: Level,
         entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
+        mut buffer_pool: Option<&mut BufferPool>
     ) -> io::Result<()> {
         let num_runs = entry_counts.len(); //Number of SST runs
 
@@ -379,7 +380,8 @@ impl SortedStringTable for Sst {
             let path = path_result?.path();
             if let Some(file_extension) = path.extension() {
                 if file_extension == filename::SST_FILE_EXTENSION {
-                    fs::remove_file(path)?;
+                    // fs::remove_file(path)?;
+                    file_interface::remove_file(path.as_os_str().to_str().unwrap(), buffer_pool.as_deref_mut())?//TODO: change function to use path directly
                 }
             }
         }
@@ -429,7 +431,7 @@ mod tests {
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![expected_result.len()]);
@@ -454,7 +456,7 @@ mod tests {
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![expected_result.len()]);
@@ -513,7 +515,7 @@ mod tests {
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![expected_result.len()]);
@@ -525,7 +527,7 @@ mod tests {
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, true)
+            sst.compact(db_name, LEVEL, &mut entry_counts, true, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![no_tomstones_result.len()]);
@@ -559,7 +561,7 @@ mod tests {
             //EDGE CASE TEST 1: compacting a single sst with itself
             let mut entry_counts = vec![entries0.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
@@ -570,7 +572,7 @@ mod tests {
             let mut entry_counts = vec![entries0.len(), 0];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
             sst.write(db_name, LEVEL, 1, &[]).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             let compaction_entries = sst.read(db_name, LEVEL, 0).unwrap();
@@ -581,7 +583,7 @@ mod tests {
             let mut entry_counts = vec![0, 0];
             sst.write(db_name, LEVEL, 0, &[]).unwrap();
             sst.write(db_name, LEVEL, 1, &[]).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![]);
@@ -607,7 +609,7 @@ mod tests {
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![expected_result.len()]);
@@ -618,7 +620,7 @@ mod tests {
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
-            sst.compact(db_name, LEVEL, &mut entry_counts, true)
+            sst.compact(db_name, LEVEL, &mut entry_counts, true, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![]);
@@ -651,7 +653,7 @@ mod tests {
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
             sst.write(db_name, LEVEL, 2, &entries2).unwrap();
 
-            sst.compact(db_name, LEVEL, &mut entry_counts, false)
+            sst.compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![expected_result.len()]);
@@ -667,7 +669,7 @@ mod tests {
             sst.write(db_name, LEVEL, 1, &entries1).unwrap();
             sst.write(db_name, LEVEL, 2, &entries2).unwrap();
 
-            sst.compact(db_name, LEVEL, &mut entry_counts, true)
+            sst.compact(db_name, LEVEL, &mut entry_counts, true, None)
                 .unwrap();
 
             assert_eq!(entry_counts, vec![expected_result.len()]);

@@ -1,6 +1,6 @@
 use std::{fs, io};
 
-use crate::file_io::serde_entry;
+use crate::file_io::{serde_entry, file_interface};
 use crate::sst::btree_util::num_leaves;
 use crate::util::algorithm::{
     binary_search_entries, binary_search_leftmost, binary_search_rightmost,
@@ -226,20 +226,22 @@ impl SortedStringTable for Sst {
         level: Level,
         entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
+        mut buffer_pool: Option<&mut BufferPool>
     ) -> io::Result<()> {
         if entry_counts.len() < 2 {
             return Ok(()); //Nothing to compact
         }
 
         //Step 1: compact file containing entries
-        array_sst::Sst.compact(db_name, level, entry_counts, discard_tombstones)?;
+        array_sst::Sst.compact(db_name, level, entry_counts, discard_tombstones, buffer_pool.as_deref_mut())?;
 
         //remove existing B-tree files
         for path_result in fs::read_dir(filename::lsm_level_directory(db_name, level))? {
             let path = path_result?.path();
             if let Some(file_extension) = path.extension() {
                 if file_extension == filename::BTREE_FILE_EXTENSION {
-                    fs::remove_file(path)?;
+                    // fs::remove_file(path)?;
+                    file_interface::remove_file(path.as_os_str().to_str().unwrap(), buffer_pool.as_deref_mut())?//TODO: change function to use path directly
                 }
             }
         }
@@ -370,7 +372,7 @@ mod tests {
 
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             btree_sst
-                .compact(db_name, LEVEL, &mut entry_counts, false)
+                .compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             let key_range = (entries0.first().unwrap().0, entries1.last().unwrap().0);
@@ -414,7 +416,7 @@ mod tests {
             });
 
             btree_sst
-                .compact(db_name, LEVEL, &mut entry_counts, false)
+                .compact(db_name, LEVEL, &mut entry_counts, false, None)
                 .unwrap();
 
             let key_range = (
