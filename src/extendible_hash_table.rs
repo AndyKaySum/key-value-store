@@ -1,21 +1,22 @@
 #![allow(dead_code)]
-use rand::Rng; use std::arch::x86_64::_MM_FROUND_NO_EXC;
+use rand::Rng;
+use std::arch::x86_64::_MM_FROUND_NO_EXC;
 // rand crate is required
-use std::f32::consts::E;
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
-use std::fmt::Debug;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
+use std::f32::consts::E;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use rand::seq::index;
 
-struct Bucket<K:Debug , V: Debug> {
+struct Bucket<K: Debug, V: Debug> {
     bucket_id: usize,
     local_depth: usize,
     elements: Vec<(K, V)>,
-    capacity: usize, 
-    size: usize, 
+    capacity: usize,
+    size: usize,
 }
 
 struct ExtendibleHashTable<K: Debug, V: Debug, H = DefaultHasher> {
@@ -26,41 +27,39 @@ struct ExtendibleHashTable<K: Debug, V: Debug, H = DefaultHasher> {
     current_size: usize,
     hasher: H,
     num_buckets: usize,
-
 }
 
-
-impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone > Bucket<K, V> {    
+impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone> Bucket<K, V> {
     fn new(capacity: usize, local_depth: usize, bucket_id: usize) -> Self {
-        Bucket{
-            local_depth, 
+        Bucket {
+            local_depth,
             capacity,
-            size: 0, 
+            size: 0,
             bucket_id,
-            elements: Vec::with_capacity(capacity), 
+            elements: Vec::with_capacity(capacity),
         }
     }
-    fn add_element(&mut self, element:  (K, V)) -> bool{
+    fn add_element(&mut self, element: (K, V)) -> bool {
         let elements = self.get_elements();
         for (index, existing_element) in elements.iter().enumerate() {
             if existing_element.0 == element.0 {
                 self.elements[index] = (element.0, element.1);
-                return true
+                return true;
             }
         }
         if !self.is_full() {
-            self.elements.push((element.0, element.1)); 
+            self.elements.push((element.0, element.1));
             self.size += 1;
-            true 
-        }
-        else{
-            println!("Failed to add element: {:?} bucket {} curr bucket {:?}", element, self.bucket_id, self.elements); 
+            true
+        } else {
+            println!(
+                "Failed to add element: {:?} bucket {} curr bucket {:?}",
+                element, self.bucket_id, self.elements
+            );
             false
         }
-        
     }
-    fn remove_element(&mut self, index: usize) -> Option< (K, V)>{
-
+    fn remove_element(&mut self, index: usize) -> Option<(K, V)> {
         if index < self.elements.len() {
             self.size -= 1;
             Some(self.elements.swap_remove(index))
@@ -69,9 +68,9 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone > Bucket<K, V> {
         }
     }
     fn get_local_depth(&self) -> usize {
-        self.local_depth 
+        self.local_depth
     }
-    fn get_elements(&self) -> &Vec< (K, V)> {
+    fn get_elements(&self) -> &Vec<(K, V)> {
         &self.elements
     }
     fn is_full(&self) -> bool {
@@ -88,7 +87,7 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone > Bucket<K, V> {
         // self.elements.clear()
     }
     fn get_high_bit(&self) -> u64 {
-        1 << self.local_depth 
+        1 << self.local_depth
     }
 }
 impl<K: Debug, V: Debug> Default for Bucket<K, V> {
@@ -105,9 +104,9 @@ impl<K: Debug, V: Debug> Default for Bucket<K, V> {
     }
 }
 
-
-impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone , H: Hasher + Default + Debug> ExtendibleHashTable<K,V, H> {
-
+impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug>
+    ExtendibleHashTable<K, V, H>
+{
     fn new(max_size: usize) -> Self {
         // The number of unique buckets is half the size of the directory
         let num_buckets = 2;
@@ -115,7 +114,7 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone , H: Hasher + Default + Deb
 
         // Create the required number of unique buckets
         for i in 0..num_buckets {
-            buckets.push(Rc::new(RefCell::new(Bucket::new(10, 1, i+1))));
+            buckets.push(Rc::new(RefCell::new(Bucket::new(15, 1, i + 1))));
         }
 
         // Create the directory and assign buckets to each index
@@ -123,11 +122,9 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone , H: Hasher + Default + Deb
         for i in 0..4 {
             if i % 2 == 0 {
                 directory.push(Rc::clone(&buckets[0]));
-            }
-            else{
+            } else {
                 directory.push(Rc::clone(&buckets[1]));
             }
-            
         }
 
         ExtendibleHashTable {
@@ -146,7 +143,7 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone , H: Hasher + Default + Deb
         let elements = bucket.get_elements();
         for element in elements {
             if element.0 == key {
-                return Some(element.1.clone())
+                return Some(element.1.clone());
             }
         }
         None
@@ -160,21 +157,21 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone , H: Hasher + Default + Deb
             if element.0 == key {
                 if i == elements.len() - 1 {
                     if (index + 1) >= self.directory.len() - 1 {
-                        return None
+                        return None;
                     }
                     let mut next_bucket = &self.directory[index + 1];
                     let mut next_elements_len = next_bucket.borrow().get_elements().len();
                     while next_elements_len == 0 {
                         if index + 1 >= self.directory.len() - 1 {
-                            return None
+                            return None;
                         }
                         next_bucket = &self.directory[index + 1];
                         next_elements_len = next_bucket.borrow_mut().get_elements().len();
                         index += 1;
                     }
-                    return Some(next_bucket.borrow_mut().get_elements()[0].1.clone())
+                    return Some(next_bucket.borrow_mut().get_elements()[0].1.clone());
                 }
-                return Some(elements[i+1].1.clone())
+                return Some(elements[i + 1].1.clone());
             }
         }
         None
@@ -184,68 +181,99 @@ impl<K: Hash + Eq + Debug + Clone , V: Debug + Clone , H: Hasher + Default + Deb
         self.directory[index] = bucket;
     }
     fn rehash_bucket(&mut self, bucket: Rc<RefCell<Bucket<K, V>>>) {
-    // Clone the elements to avoid borrowing issues
-    let elements = bucket.borrow().get_elements().clone();
-    for element in elements {
-        self.put(element.0, element.1);
-    }
-}
-fn put(&mut self, key: K, value: V) -> bool{
-    let index = self.hash_key(&key) as usize;
-    
-    self.get_bucket_mut(index).unwrap().borrow_mut().add_element((key, value));
-    let (local_depth, is_full) = {
-        let bucket = self.get_bucket(index).unwrap().borrow();
-        assert!(bucket.get_bucket_id() != 20069);
-        (bucket.get_local_depth(),bucket.is_full())
-
-    };
-    if is_full {
-        let global_depth = self.get_global_depth();
-        if local_depth == global_depth{
-            // need to double since can't split this bucket further
-            self.global_depth += 1;
-            let new_directory_size = 2usize.pow(self.global_depth as u32);
-            let mut new_directory: Vec<Rc<RefCell<Bucket<K, V>>>> = Vec::with_capacity(new_directory_size);
-            for index in 0..new_directory_size{
-                new_directory.push(self.directory[truncate_binary(index as u64, self.global_depth - 1) as usize].clone());
-            }
-            self.directory = new_directory;
-        }
-        let bucket1 = Rc::new(RefCell::new(Bucket::new(self.get_bucket(index).unwrap().borrow().capacity, local_depth + 1, self.num_buckets + 1)));
-        let bucket2 = Rc::new(RefCell::new(Bucket::new(self.get_bucket(index).unwrap().borrow().capacity, local_depth + 1, self.num_buckets + 2)));
-        let high_bit = self.get_bucket(index).unwrap().borrow().get_high_bit();
-        let elements = std::mem::take(&mut self.get_bucket_mut(index as usize).unwrap().borrow_mut().elements);
-        
+        // Clone the elements to avoid borrowing issues
+        let elements = bucket.borrow().get_elements().clone();
         for element in elements {
-            let index = self.hash_key(&element.0);
- 
-            if index & high_bit == 0 { //not sure if this a zero check
-                bucket1.borrow_mut().add_element(element.clone());
-            }
-            else{
-                bucket2.borrow_mut().add_element(element.clone());
-            }
+            self.put(element.0, element.1);
         }
-      
-        for i in ((index as u64 & (high_bit - 1))..self.directory.len() as u64).step_by(high_bit as usize) {
-            if i & high_bit == 0 { //not sure if this a zero check
-                self.add_to_directory(bucket1.clone(), i as usize);
-            }
-            else{
-                self.add_to_directory(bucket2.clone(), i as usize);
-            }
-        } 
-        assert!(!self.get_bucket(index).unwrap().borrow().is_full()); 
     }
-    true
-}   
-    fn delete(&mut self, key: K) -> Option< (K, V)> {
-        let mut bucket = self.get_bucket_mut(self.hash_key(&key) as usize).unwrap().borrow_mut();
+    fn put(&mut self, key: K, value: V) -> bool {
+        let index = self.hash_key(&key) as usize;
+
+        self.get_bucket_mut(index)
+            .unwrap()
+            .borrow_mut()
+            .add_element((key.clone(), value.clone()));
+        let (local_depth, is_full) = {
+            let bucket = self.get_bucket(index).unwrap().borrow();
+            assert!(bucket.get_bucket_id() != 20069);
+            (bucket.get_local_depth(), bucket.is_full())
+        };
+        if is_full {
+            let global_depth = self.get_global_depth();
+            if local_depth == global_depth {
+                // need to double since can't split this bucket further
+                self.global_depth += 1;
+                let new_directory_size = 2usize.pow(self.global_depth as u32);
+                let mut new_directory: Vec<Rc<RefCell<Bucket<K, V>>>> =
+                    Vec::with_capacity(new_directory_size);
+                for index in 0..new_directory_size {
+                    new_directory.push(
+                        self.directory
+                            [truncate_binary(index as u64, self.global_depth - 1) as usize]
+                            .clone(),
+                    );
+                }
+                self.directory = new_directory;
+            }
+            let bucket1 = Rc::new(RefCell::new(Bucket::new(
+                self.get_bucket(index).unwrap().borrow().capacity,
+                local_depth + 1,
+                self.num_buckets + 1,
+            )));
+            let bucket2 = Rc::new(RefCell::new(Bucket::new(
+                self.get_bucket(index).unwrap().borrow().capacity,
+                local_depth + 1,
+                self.num_buckets + 2,
+            )));
+            let high_bit = self.get_bucket(index).unwrap().borrow().get_high_bit();
+            let elements = std::mem::take(
+                &mut self
+                    .get_bucket_mut(index as usize)
+                    .unwrap()
+                    .borrow_mut()
+                    .elements,
+            );
+
+            for element in elements {
+                let index = self.hash_key(&element.0);
+
+                if index & high_bit == 0 {
+                    //not sure if this a zero check
+                    bucket1.borrow_mut().add_element(element.clone());
+                } else {
+                    bucket2.borrow_mut().add_element(element.clone());
+                }
+            }
+
+            for i in ((index as u64 & (high_bit - 1))..self.directory.len() as u64)
+                .step_by(high_bit as usize)
+            {
+                if i & high_bit == 0 {
+                    //not sure if this a zero check
+                    self.add_to_directory(bucket1.clone(), i as usize);
+                } else {
+                    self.add_to_directory(bucket2.clone(), i as usize);
+                }
+            }
+            // if (self.get_bucket(index).unwrap().borrow().is_full()){
+            //     println!("here");
+            //     return self.put(key, value)
+            // }
+
+            assert!(!self.get_bucket(index).unwrap().borrow().is_full());
+        }
+        true
+    }
+    fn delete(&mut self, key: K) -> Option<(K, V)> {
+        let mut bucket = self
+            .get_bucket_mut(self.hash_key(&key) as usize)
+            .unwrap()
+            .borrow_mut();
         let elements = bucket.get_elements();
         for (index, element) in elements.iter().enumerate() {
             if element.0 == key {
-                return bucket.remove_element(index)
+                return bucket.remove_element(index);
             }
         }
         None
@@ -253,12 +281,11 @@ fn put(&mut self, key: K, value: V) -> bool{
     fn hash_key(&self, key: &K) -> u64 {
         let mut hasher: H = H::default();
         key.hash(&mut hasher);
-        let hash_value = hasher.finish() as u64; 
+        let hash_value = hasher.finish() as u64;
         hash_value & ((1 << self.global_depth) - 1)
     }
     fn get_global_depth(&self) -> usize {
         self.global_depth
-        
     }
     fn get_max_size(&self) -> usize {
         self.max_size
@@ -269,32 +296,29 @@ fn put(&mut self, key: K, value: V) -> bool{
     fn get_directory(&self) -> &Vec<Rc<RefCell<Bucket<K, V>>>> {
         &self.directory
     }
-    fn get_directory_mut(&mut self) -> &mut Vec<Rc<RefCell<Bucket<K, V>>>>{
+    fn get_directory_mut(&mut self) -> &mut Vec<Rc<RefCell<Bucket<K, V>>>> {
         &mut self.directory
     }
     fn get_bucket(&self, index: usize) -> Option<&Rc<RefCell<Bucket<K, V>>>> {
-        self.directory.get(index)    
+        self.directory.get(index)
     }
     fn get_bucket_mut(&mut self, index: usize) -> Option<&mut Rc<RefCell<Bucket<K, V>>>> {
-        self.directory.get_mut(index)    
+        self.directory.get_mut(index)
     }
-
-    
 }
 
 fn truncate_binary(num: u64, length: usize) -> u64 {
     if length >= 64 {
         return num;
-    } 
+    }
     if num == 0 {
         return 0;
-    }   
+    }
     // Create a bitmask with the last `length` bits set to 1
     let bitmask: u64 = (1 << length) - 1;
     // Apply the bitmask to `num` to get the last `length` bits
     num & bitmask
 }
-
 
 #[cfg(test)]
 mod extendible_hash_table_tests {
@@ -305,19 +329,30 @@ mod extendible_hash_table_tests {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(100);
 
         assert_eq!(hash_table.get_global_depth(), 2);
-        assert_eq!(hash_table.get_max_size(), 100); 
-        let iters = 1000; 
-        for i in 0..iters{
+        assert_eq!(hash_table.get_max_size(), 100);
+        let iters = 1000;
+        for i in 0..iters {
             hash_table.put(i, i);
         }
-        
-        for i in 0..iters{
-            println!("Getting element: {} from bucket {}", i, hash_table.hash_key(&i));
+        println!("get 700 {}", hash_table.get(700).unwrap());
+        for i in 0..iters {
+            println!(
+                "Getting element: {} from bucket {}",
+                i,
+                hash_table.hash_key(&i)
+            );
             println!("Element: {:?}", hash_table.get(i).unwrap());
         }
         for bucket in hash_table.get_directory() {
             let borrowed_bucket = bucket.borrow_mut();
-            println!("Bucket: {:?} ({}) is full? {} size {} capacity {}",borrowed_bucket.get_elements(), borrowed_bucket.get_bucket_id(), borrowed_bucket.is_full(), borrowed_bucket.get_size(), borrowed_bucket.capacity);
+            println!(
+                "Bucket: {:?} ({}) is full? {} size {} capacity {}",
+                borrowed_bucket.get_elements(),
+                borrowed_bucket.get_bucket_id(),
+                borrowed_bucket.is_full(),
+                borrowed_bucket.get_size(),
+                borrowed_bucket.capacity
+            );
         }
         println!("Global depth: {}", hash_table.get_global_depth());
         println!("get next: {:?}", hash_table.get_next(8));
@@ -332,7 +367,6 @@ mod extendible_hash_table_tests {
 
         // Retrieve values from the hash table using keys
         assert_eq!(hash_table.get(1), Some(10));
-
 
         assert_eq!(hash_table.get(2), Some(20));
         assert_eq!(hash_table.get(3), Some(30));
@@ -378,7 +412,7 @@ mod extendible_hash_table_tests {
         for i in 0..10 {
             hash_table.put(i, i * 100);
         }
-    
+
         for i in 0..10 {
             assert_eq!(hash_table.get(i), Some((i * 100)));
         }
@@ -394,7 +428,7 @@ mod extendible_hash_table_tests {
         }
         // Checking a high-index element
         assert_eq!(hash_table.get(999), Some(999));
-    
+
         // Checking after deleting a high-index element
         hash_table.delete(999);
         assert_eq!(hash_table.get(999), None);
@@ -408,13 +442,24 @@ mod extendible_hash_table_tests {
     #[test]
     fn test_with_custom_structs() {
         let mut hash_table = ExtendibleHashTable::<CustomKey, i32, DefaultHasher>::new(100);
-        let key1 = CustomKey { id: 1, name: "Key1".to_string() };
-        let key2 = CustomKey { id: 2, name: "Key2".to_string() };
+        let key1 = CustomKey {
+            id: 1,
+            name: "Key1".to_string(),
+        };
+        let key2 = CustomKey {
+            id: 2,
+            name: "Key2".to_string(),
+        };
 
         hash_table.put(key1, 100);
         hash_table.put(key2, 200);
 
-        assert_eq!(hash_table.get(CustomKey { id: 1, name: "Key1".to_string() }), Some(100));
+        assert_eq!(
+            hash_table.get(CustomKey {
+                id: 1,
+                name: "Key1".to_string()
+            }),
+            Some(100)
+        );
     }
-
 }
