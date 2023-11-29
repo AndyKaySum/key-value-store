@@ -89,8 +89,8 @@ mod tests {
 
     #[test]
     fn test_bloom_filter_simple() {
-        // Create a new Bloom filter with a capacity of 100 elements and a false positive rate of 0.1%
-        let mut bloom_filter = BloomFilter::new_for_fpr(50, 0.001);
+        // Create a new Bloom filter
+        let mut bloom_filter = BloomFilter::new(10, 50);
 
         // Insert some elements into the Bloom filter
         bloom_filter.set("one");
@@ -104,5 +104,35 @@ mod tests {
 
         // Check negative
         assert!(!bloom_filter.has("four"));
+    }
+
+    #[test]
+    fn test_bloom_filter_false_positive() {
+        // Create a new Bloom filter
+        let mut bloom_filter = BloomFilter::new(1, 10);
+
+        bloom_filter.set("one");
+        bloom_filter.set("two");
+        bloom_filter.set("three");
+        bloom_filter.set("four");
+        bloom_filter.set("five");
+        bloom_filter.set("six");
+        bloom_filter.set("seven");
+        bloom_filter.set("eight");
+        
+        // Check false positive
+        assert!(bloom_filter.has("nine"));
+    }
+
+    #[test]
+    fn test_bloom_filter_reset() {
+        // Create a new Bloom filter
+        let mut bloom_filter = BloomFilter::new(10, 50);
+
+        bloom_filter.set("one");
+        bloom_filter.reset();
+
+        // Check negative
+        assert!(!bloom_filter.has("one"));
     }
 }
