@@ -235,6 +235,11 @@ impl SortedStringTable for Sst {
         discard_tombstones: bool,
     ) -> io::Result<()> {
         let num_runs = entry_counts.len(); //Number of SST runs
+
+        if num_runs < 2 {
+            return Ok(()); //nothing to compact
+        }
+
         let page_counts: Vec<Size> = entry_counts
             .iter()
             .map(|num_entries| num_pages(*num_entries))

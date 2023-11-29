@@ -1,9 +1,11 @@
-use std::io; //can swap "serde_entry" with "bincode" to swap functions
+use std::{fs, io};
 
+use crate::file_io::serde_entry;
 use crate::sst::btree_util::num_leaves;
 use crate::util::algorithm::{
     binary_search_entries, binary_search_leftmost, binary_search_rightmost,
 };
+use crate::util::types::{Depth, Node};
 use crate::{
     buffer_pool::BufferPool,
     file_io::{direct_io, serde_btree},
@@ -19,8 +21,10 @@ use crate::{
 use super::btree_util::{
     btree_navigate, get_last_in_each_chunk, has_inner_nodes, seek_node, tree_depth,
 };
-use super::sst_util::get_entries_at_page;
+use super::sst_util::{get_entries_at_page, get_sst_page, num_pages};
 use super::{array_sst, SortedStringTable};
+
+type DelimeterBuffer = Vec<(Vec<Key>, Node)>; //Type alias for datastructure used to recursively build inner B-tree nodes from an SST
 
 pub struct Sst;
 
@@ -214,13 +218,216 @@ impl SortedStringTable for Sst {
         Ok(byte_count as Size / ENTRY_SIZE)
     }
 
+    ///Compact all SST runs in a level into a single SST run, build B-tree nodes (if applicable),
+    /// and update entry_counts to reflect that
     fn compact(
         &self,
-        _db_name: &str,
-        _level: Level,
-        _entry_counts: &mut Vec<Size>,
-        _discard_tombstones: bool,
+        db_name: &str,
+        level: Level,
+        entry_counts: &mut Vec<Size>,
+        discard_tombstones: bool,
     ) -> io::Result<()> {
-        unimplemented!()
+        if entry_counts.len() < 2 {
+            return Ok(()); //Nothing to compact
+        }
+
+        //Step 1: compact file containing entries
+        array_sst::Sst.compact(db_name, level, entry_counts, discard_tombstones)?;
+
+        //remove existing B-tree files
+        for path_result in fs::read_dir(filename::lsm_level_directory(db_name, level))? {
+            let path = path_result?.path();
+            if let Some(file_extension) = path.extension() {
+                if file_extension == filename::BTREE_FILE_EXTENSION {
+                    fs::remove_file(path)?;
+                }
+            }
+        }
+
+        let run = 0;
+        //Step 2: if our new file takes up more than a page, build inner B-tree nodes
+        if entry_counts.is_empty() || num_pages(entry_counts[run]) < 2 {
+            return Ok(());
+        }
+
+        let num_entries = entry_counts[run];
+        let num_pages = num_pages(num_entries);
+
+        let get_key = |page_index, index_within_page| -> io::Result<Key> {
+            let page = get_sst_page(db_name, level, run, page_index, None)?;
+            let (key, ..) = serde_entry::deserialize_entry_within_page(&page, index_within_page).unwrap_or_else(|why| panic!("Failed to deserialize key at page: {page_index} index: {index_within_page}, reason: {why}"));
+            Ok(key)
+        };
+
+        let mut delimeter_buffer: DelimeterBuffer = (0..tree_depth(num_entries))
+            .map(|_depth| (Vec::with_capacity(fanout()), 0))
+            .collect();
+
+        let path = filename::sst_btree_path(db_name, level, run);
+        let mut file = direct_io::create(&path)?;
+
+        for page_index in 0..num_pages {
+            //need to handle last page differently
+            let is_last_page = page_index == num_pages - 1;
+            let last_element_index = if is_last_page {
+                (num_entries - 1) % num_entries_per_page()
+            } else {
+                num_entries_per_page() - 1
+            };
+            let delimeter = get_key(page_index, last_element_index)?;
+            delimeter_buffer_insert(
+                &mut file,
+                &mut delimeter_buffer,
+                tree_depth(num_entries) - 1,
+                num_entries,
+                delimeter,
+                is_last_page,
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
+///Recursively build inner B-tree nodes in a scalable way (only needs <tree depth> * fanout memory).
+/// Requires inserting last value of every page in an SST (one scan)
+fn delimeter_buffer_insert(
+    mut file: &mut std::fs::File,
+    buffer: &mut DelimeterBuffer,
+    depth: Depth,
+    num_entries: Size,
+    key: Key,
+    force_flush: bool,
+) -> io::Result<()> {
+    let (delimeters, curr_node) = &mut buffer[depth];
+
+    delimeters.push(key);
+
+    //when we reach enough delimeters to write a node (or if we want to force a write),
+    // write all but the last (handled by serialize_into) and move the last value into the upper level,
+    // where it will be used to write nodes at that level (when that level fills up)
+    if delimeters.len() >= fanout() || force_flush {
+        seek_node(file, depth, *curr_node, num_entries)?;
+        serde_btree::serialize_into(&mut file, delimeters)?;
+
+        //largest key is moved to a higher level node, where it is used as a delimeter there
+        let largest_key = delimeters.last().unwrap().to_owned(); //NOTE: should be able to unwrap because of the length check earlier
+
+        delimeters.clear(); //we no longer need these delimeters in our buffer
+        *curr_node += 1;
+        assert!(*curr_node <= num_nodes(depth, num_entries));
+
+        if depth > 0 {
+            delimeter_buffer_insert(
+                file,
+                buffer,
+                depth - 1,
+                num_entries,
+                largest_key,
+                force_flush,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+mod tests {
+    use super::*;
+
+    #[allow(dead_code)]
+    fn setup_and_test_and_cleaup(db_name: &str, level: Level, mut test: Box<dyn FnMut()>) {
+        let dir = &filename::lsm_level_directory(db_name, level);
+        if std::path::Path::new(dir).exists() {
+            std::fs::remove_dir_all(dir).unwrap(); //remove previous directory if panicked during tests and didn't clean up
+        }
+        std::fs::create_dir_all(dir).unwrap();
+
+        test();
+
+        std::fs::remove_dir_all(db_name).unwrap();
+    }
+
+    #[test]
+    fn test_simple_compaction_btree_nodes() {
+        //test if we properly build the inner nodes when compacting
+        //we don't need to test if the entries are compacted properly since it's handled by array_sst
+        let db_name = "btree_simple_sst_compaction";
+        const LEVEL: Level = 0;
+        let test = || {
+            let btree_sst = Sst {};
+            let num_entries_per_sst = fanout() * num_entries_per_page();
+            let iter = 0..num_entries_per_sst as Key; //needs #fanout nodes + 1 root
+            let entries0: Vec<(Key, Value)> = iter.to_owned().map(|key| (key, 0)).collect();
+            let entries1: Vec<(Key, Value)> =
+                iter.map(|key| (entries0.len() as Key + key, 1)).collect();
+
+            let mut expected_result = vec![];
+            expected_result.extend(entries0.to_owned());
+            expected_result.extend(entries1.to_owned());
+
+            btree_sst.write(db_name, LEVEL, 0, &entries0).unwrap();
+            btree_sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+
+            let mut entry_counts = vec![entries0.len(), entries1.len()];
+            btree_sst
+                .compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            let key_range = (entries0.first().unwrap().0, entries1.last().unwrap().0);
+            let result = btree_sst
+                .scan(db_name, LEVEL, 0, key_range, entry_counts[0], None)
+                .unwrap();
+
+            assert_eq!(result.len(), expected_result.len());
+            assert_eq!(result, expected_result);
+        };
+        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
+    }
+
+    #[test]
+    fn test_multi_compaction_btree_nodes() {
+        //test if we properly build the inner nodes when compacting
+        //we don't need to test if the entries are compacted properly since it's handled by array_sst
+        let db_name = "btree_multi_sst_compaction";
+        const LEVEL: Level = 0;
+        let test = || {
+            let btree_sst = Sst {};
+            let num_entries_per_sst = fanout() * num_entries_per_page();
+            let num_runs: Run = 5;
+
+            let mut entries = Vec::<Vec<(Key, Value)>>::new();
+            let mut entry_counts = Vec::<Size>::new();
+            for run in 0..num_runs {
+                let run_entries: Vec<(Key, Value)> = (0..num_entries_per_sst as Key)
+                    .map(|key| (key + (run * num_entries_per_sst) as Key, run as Value))
+                    .collect();
+                entry_counts.push(run_entries.len());
+
+                btree_sst.write(db_name, LEVEL, run, &run_entries).unwrap();
+
+                entries.push(run_entries);
+            }
+
+            let expected_result = entries.iter().fold(vec![], |mut acc, entries| {
+                acc.extend(entries.iter());
+                acc
+            });
+
+            btree_sst
+                .compact(db_name, LEVEL, &mut entry_counts, false)
+                .unwrap();
+
+            let key_range = (
+                entries[0].first().unwrap().0,
+                entries[num_runs - 1].last().unwrap().0,
+            );
+            let result = btree_sst
+                .scan(db_name, LEVEL, 0, key_range, entry_counts[0], None)
+                .unwrap();
+
+            assert_eq!(result.len(), expected_result.len());
+            assert_eq!(result, expected_result);
+        };
+        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
     }
 }

@@ -78,7 +78,7 @@ pub fn buffered_deserialize_from(
     reader: &mut impl std::io::Read,
     buffer_size: usize,
 ) -> io::Result<Vec<(Key, Value)>> {
-    if buffer_size <= 0 {
+    if buffer_size == 0 {
         return Ok(vec![]);
     }
     let mut buffer: Vec<u8> = vec![0; buffer_size];
