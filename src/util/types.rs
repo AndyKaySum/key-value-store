@@ -25,3 +25,9 @@ pub enum SstImplementation {
     Array,
     Btree,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum SstSearchAlgorithm {
+    Default,
+    BinarySearch,
+}

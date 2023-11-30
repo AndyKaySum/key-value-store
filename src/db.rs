@@ -11,7 +11,7 @@ use crate::{
     file_io::{direct_io, file_interface},
     memtable::Memtable,
     sst::{array_sst, btree_sst, SortedStringTable},
-    util::filename,
+    util::{filename, types::SstSearchAlgorithm},
     util::{
         system_info::{self, ENTRY_SIZE},
         types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value},
@@ -23,10 +23,13 @@ struct Config {
     memtable_capacity: Size, //in terms of number of entries
     sst_size_ratio: Size,    //size ratio between sst levels
     sst_implementation: SstImplementation,
+    sst_search_algorithm: SstSearchAlgorithm,
     enable_buffer_pool: bool,
     buffer_pool_capacity: Size,
     buffer_pool_initial_size: Size,
     compaction_policy: CompactionPolicy,
+    enable_bloom_filter: bool,
+    bloom_filter_bits_per_entry: Size,
 }
 
 impl Config {
@@ -35,10 +38,13 @@ impl Config {
             memtable_capacity: system_info::num_entries_per_page(),
             sst_size_ratio: Database::DEFAULT_SST_SIZE_RATIO,
             sst_implementation: SstImplementation::Array,
+            sst_search_algorithm: SstSearchAlgorithm::Default,
             enable_buffer_pool: true,
             buffer_pool_capacity: Database::DEFAULT_BUFFER_POOL_CAPACITY,
             buffer_pool_initial_size: Database::DEFAULT_BUFFER_POOL_INITIAL_SIZE,
             compaction_policy: CompactionPolicy::None,
+            enable_bloom_filter: true,
+            bloom_filter_bits_per_entry: Database::DEFAULT_BITS_PER_ENTRY,
         }
     }
 }
@@ -70,8 +76,9 @@ impl Database {
     const DEFAULT_SST_SIZE_RATIO: Size = 2;
     const DEFAULT_BUFFER_POOL_CAPACITY: Size = 2560; //Enough for 10MB of 4096 byte pages
     const DEFAULT_BUFFER_POOL_INITIAL_SIZE: Size = 97; //NOTE: this was arbitrarily chosen: closest prime number to 100
+    const DEFAULT_BITS_PER_ENTRY: Size = 5;
 
-    const LEVEL_ZERO: Level = 0; //Constant for step 1 and 2, needs to be removed in step 3
+    const LEVEL_ZERO: Level = 0;
 
     //RESERVED VALUES BELOW (not allowed for normal input)
     ///Reserved tombstone value
@@ -133,6 +140,13 @@ impl Database {
         self.config.sst_implementation = sst_implementation;
         self
     }
+    pub fn sst_search_algorithm(&self) -> SstSearchAlgorithm {
+        self.config.sst_search_algorithm
+    }
+    pub fn set_sst_search_algorithm(mut self, sst_search_algorithm: SstSearchAlgorithm) -> Self {
+        self.config.sst_search_algorithm = sst_search_algorithm;
+        self
+    }
     pub fn enable_buffer_pool(&self) -> bool {
         self.config.enable_buffer_pool
     }
@@ -180,6 +194,20 @@ impl Database {
     }
     pub fn set_compaction_policy(mut self, compaction_policy: CompactionPolicy) -> Self {
         self.config.compaction_policy = compaction_policy;
+        self
+    }
+    pub fn enable_bloom_filter(&self) -> bool {
+        self.config.enable_bloom_filter
+    }
+    pub fn set_enable_bloom_filter(mut self, enable_buffer_pool: bool) -> Self {
+        self.config.enable_bloom_filter = enable_buffer_pool;
+        self
+    }
+    pub fn bloom_filter_bits_per_entry(&self) -> Size {
+        self.config.bloom_filter_bits_per_entry
+    }
+    pub fn set_bloom_filter_bits_per_entry(mut self, bits_per_entry: Size) -> Self {
+        self.config.bloom_filter_bits_per_entry = bits_per_entry;
         self
     }
     fn is_closed(&self) -> bool {
@@ -389,8 +417,7 @@ impl Database {
         };
 
         match self.config.compaction_policy {
-            CompactionPolicy::None => {
-            }
+            CompactionPolicy::None => {}
             CompactionPolicy::Leveled | CompactionPolicy::Basic => leveled_compact(self),
             CompactionPolicy::Tiered => tiered_compact(self),
             CompactionPolicy::Dovstoevsky => {
@@ -427,12 +454,12 @@ impl Database {
 
         //Write memtable to storage
         let entries = self.memtable.as_vec();
-        if let Err(why) = self
-            .sst_interface()
+        self.sst_interface()
             .write(&self.name, level, next_run_num, &entries)
-        {
-            panic!("Failed to flush memtable to SST, reason: {why}");
-        };
+            .unwrap_or_else(|why| panic!("Failed to flush memtable to SST, reason: {why}"));
+
+        //TODO: create bloom filter
+
         self.metadata.entry_counts[level].push(entries.len());
 
         self.memtable.clear();
