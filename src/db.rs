@@ -683,7 +683,7 @@ impl Drop for Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::btree_info::fanout;
+    use crate::util::{btree_info::fanout, testing};
 
     use super::*;
 
@@ -961,50 +961,14 @@ mod tests {
         setup_and_test_and_cleaup(test_name, &mut alterations, &mut test)
     }
 
-    fn part1_db_alterations(db: Database) -> Database {
-        db.set_compaction_policy(CompactionPolicy::None)
-            .set_sst_size_ratio(2)
-            .set_sst_implementation(SstImplementation::Array)
-            .set_sst_search_algorithm(SstSearchAlgorithm::Default)
-            .set_enable_buffer_pool(false)
-            .set_buffer_pool_capacity(1)
-            .set_buffer_pool_initial_size(1)
-            .set_enable_bloom_filter(false)
-            .set_bloom_filter_bits_per_entry(1)
-    }
-
-    fn part2_db_alterations(db: Database) -> Database {
-        db.set_compaction_policy(CompactionPolicy::None)
-            .set_sst_size_ratio(2)
-            .set_sst_implementation(SstImplementation::Btree)
-            .set_sst_search_algorithm(SstSearchAlgorithm::Default)
-            .set_enable_buffer_pool(true)
-            .set_buffer_pool_capacity(10)
-            .set_buffer_pool_initial_size(4)
-            .set_enable_bloom_filter(false)
-            .set_bloom_filter_bits_per_entry(0)
-    }
-
-    fn part3_db_alterations(db: Database) -> Database {
-        db.set_compaction_policy(CompactionPolicy::Dovstoevsky)
-            .set_sst_size_ratio(2)
-            .set_sst_implementation(SstImplementation::Btree)
-            .set_sst_search_algorithm(SstSearchAlgorithm::Default)
-            .set_enable_buffer_pool(true)
-            .set_buffer_pool_capacity(10)
-            .set_buffer_pool_initial_size(4)
-            .set_enable_bloom_filter(true)
-            .set_bloom_filter_bits_per_entry(5)
-    }
-
     #[test]
     fn part_1_test_small() {
-        small_db_test("part1_small_db_test", &mut part1_db_alterations);
+        small_db_test("part1_small_db_test", &mut testing::part1_db_alterations);
     }
 
     #[test]
     fn part1_test_large() {
-        large_db_test("part1_large_db_test", &mut part1_db_alterations);
+        large_db_test("part1_large_db_test", &mut testing::part1_db_alterations);
     }
 
     #[test]
@@ -1012,36 +976,36 @@ mod tests {
     fn part1_test_multi_page_btree_single_sst() {
         multi_page_btree_single_sst_db_test(
             "part1_multi_page_btree_single_sst_db_test",
-            &mut part1_db_alterations,
+            &mut testing::part1_db_alterations,
         );
     }
 
     #[test]
     fn part_2_test_small() {
-        small_db_test("part2_small_db_test", &mut part2_db_alterations);
+        small_db_test("part2_small_db_test", &mut testing::part2_db_alterations);
     }
 
     #[test]
     fn part2_test_large() {
-        large_db_test("part2_large_db_test", &mut part2_db_alterations);
+        large_db_test("part2_large_db_test", &mut testing::part2_db_alterations);
     }
 
     #[test]
     fn part2_test_multi_page_btree_single_sst() {
         multi_page_btree_single_sst_db_test(
             "part2_multi_page_btree_single_sst_db_test",
-            &mut part2_db_alterations,
+            &mut testing::part2_db_alterations,
         );
     }
 
     #[test]
     fn part_3_test_small() {
-        small_db_test("part3_small_db_test", &mut part3_db_alterations);
+        small_db_test("part3_small_db_test", &mut testing::part3_db_alterations);
     }
 
     #[test]
     fn part3_test_large() {
-        large_db_test("part3_large_db_test", &mut part3_db_alterations);
+        large_db_test("part3_large_db_test", &mut testing::part3_db_alterations);
     }
 
     #[test]
@@ -1049,7 +1013,7 @@ mod tests {
     fn part3_test_multi_page_btree_single_sst() {
         multi_page_btree_single_sst_db_test(
             "part3_multi_page_btree_single_sst_db_test",
-            &mut part3_db_alterations,
+            &mut testing::part3_db_alterations,
         );
     }
 }
