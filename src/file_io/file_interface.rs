@@ -4,6 +4,10 @@ use crate::{buffer_pool::BufferPool, util::types::Page};
 
 use super::direct_io;
 
+//This file is responsible for getting pages through the buffer pool if enabled
+// and interacting with files in a way that keeps the buffer pool in sync with
+// the state of the file system
+
 pub fn get_page(
     path: &str,
     page_index: Page,
