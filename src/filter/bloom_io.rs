@@ -24,7 +24,6 @@ impl BloomFilterIO {
     ///Write bloom filter bitmap to storage
     pub fn write(db_name: &str, level: Level, run: Run, bitmap: &[u8]) -> io::Result<()> {
         let path = filename::bloom_filter_path(db_name, level, run);
-        println!("{}", path);
         let mut file = direct_io::create(&path)?;
 
         let mut buffer = bitmap.to_vec();
