@@ -1,7 +1,7 @@
 pub mod array_sst;
 pub mod btree_sst;
 mod btree_util;
-mod sst_util;
+pub mod sst_util;
 
 use std::io;
 

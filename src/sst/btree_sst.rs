@@ -343,20 +343,10 @@ fn delimeter_buffer_insert(
 }
 
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
-
-    #[allow(dead_code)]
-    fn setup_and_test_and_cleaup(db_name: &str, level: Level, mut test: Box<dyn FnMut()>) {
-        let dir = &filename::lsm_level_directory(db_name, level);
-        if std::path::Path::new(dir).exists() {
-            std::fs::remove_dir_all(dir).unwrap(); //remove previous directory if panicked during tests and didn't clean up
-        }
-        std::fs::create_dir_all(dir).unwrap();
-
-        test();
-
-        std::fs::remove_dir_all(db_name).unwrap();
-    }
+    #[allow(unused_imports)]
+    use crate::util::testing::setup_and_test_and_cleaup;
 
     #[test]
     fn test_simple_compaction_btree_nodes() {
@@ -364,7 +354,7 @@ mod tests {
         //we don't need to test if the entries are compacted properly since it's handled by array_sst
         let db_name = "btree_simple_sst_compaction";
         const LEVEL: Level = 0;
-        let test = || {
+        let mut test = || {
             let btree_sst = Sst {};
             let num_entries_per_sst = fanout() * num_entries_per_page();
             let iter = 0..num_entries_per_sst as Key; //needs #fanout nodes + 1 root
@@ -392,7 +382,7 @@ mod tests {
             assert_eq!(result.len(), expected_result.len());
             assert_eq!(result, expected_result);
         };
-        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
+        setup_and_test_and_cleaup(db_name, LEVEL, &mut test);
     }
 
     #[test]
@@ -401,7 +391,7 @@ mod tests {
         //we don't need to test if the entries are compacted properly since it's handled by array_sst
         let db_name = "btree_multi_sst_compaction";
         const LEVEL: Level = 0;
-        let test = || {
+        let mut test = || {
             let btree_sst = Sst {};
             let num_entries_per_sst = fanout() * num_entries_per_page();
             let num_runs: Run = 5;
@@ -439,6 +429,6 @@ mod tests {
             assert_eq!(result.len(), expected_result.len());
             assert_eq!(result, expected_result);
         };
-        setup_and_test_and_cleaup(db_name, LEVEL, Box::new(test));
+        setup_and_test_and_cleaup(db_name, LEVEL, &mut test);
     }
 }

@@ -9,6 +9,7 @@ use crate::{
     buffer_pool::BufferPool,
     ceil_div,
     file_io::{direct_io, file_interface},
+    filter::{bloom_filter::BloomFilter, bloom_io::BloomFilterIO},
     memtable::Memtable,
     sst::{array_sst, btree_sst, SortedStringTable},
     util::{filename, types::SstSearchAlgorithm},
@@ -357,13 +358,18 @@ impl Database {
             );
             file_interface::rename_file(&sst_path, &new_sst_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename SST file from {sst_path} to {new_sst_path}, reason: {why}")); //every run has an SST file (don't need to check if it exists)
 
-            //TODO: bloom filter file rename/move
-
             //rename B-tree file (if applicable)
             let btree_path = filename::sst_btree_path(db_name, level, run);
             if Path::new(&btree_path).exists() {
                 let new_btree_path = filename::sst_btree_path(db_name, next_level, new_run);
                 file_interface::rename_file(&btree_path, &new_btree_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename B-tree file from {btree_path} to {new_btree_path}, reason: {why}"));
+            }
+
+            //rename bloom filter (if applicable)
+            let bloom_path = filename::bloom_filter_path(db_name, level, run);
+            if Path::new(&bloom_path).exists() {
+                let new_bloom_path = filename::bloom_filter_path(db_name, next_level, new_run);
+                file_interface::rename_file(&bloom_path, &new_bloom_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename bloom filter file from {bloom_path} to {new_bloom_path}, reason: {why}"));
             }
         }
 
@@ -386,7 +392,14 @@ impl Database {
         let is_last_level = level == self.metadata.entry_counts.len() - 1; //should discard tombstones on last level only
 
         let compact = |db: &mut Database| {
-            let buffer_pool = None; //TODO: handle buffer pool
+            let mut buffer_pool = None; //TODO: handle buffer pool
+
+            //remove bloom filter files, a new one will be made after compaction
+            for run in 0..db.sst_count(level) {
+                file_interface::remove_file(&filename::bloom_filter_path(&db.name, level, run), buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to delete bloom filter file at level: {level} run: {run}, reason: {why}"))
+            }
+
+            //compact SSTs
             db.sst_interface()
                 .compact(
                     &db.name,
@@ -396,6 +409,19 @@ impl Database {
                     buffer_pool,
                 )
                 .unwrap_or_else(|why| panic!("Failed to compact level {level}, reason {why}"));
+
+            //write new bloom filter (if there is something left after compaction)
+            if db.enable_bloom_filter() && !db.metadata.entry_counts[level].is_empty() {
+                let run = 0;
+                BloomFilterIO::write_from_sst(
+                    &db.name,
+                    level,
+                    run,
+                    db.bloom_filter_bits_per_entry(),
+                    db.metadata.entry_counts[level][run],
+                )
+                .unwrap_or_else(|why| panic!("Failed to compact level {level}, reason {why}"));
+            }
         };
         let leveled_compact = |db: &mut Database| {
             //LEVELED COMPACTION: greedily compact, only move runs to next level if we reach our size limit (size_ratio * run size of prev level)
@@ -454,13 +480,20 @@ impl Database {
 
         //Write memtable to storage
         let entries = self.memtable.as_vec();
+        let num_entries = entries.len();
+
         self.sst_interface()
             .write(&self.name, level, next_run_num, &entries)
             .unwrap_or_else(|why| panic!("Failed to flush memtable to SST, reason: {why}"));
 
-        //TODO: create bloom filter
+        if self.enable_bloom_filter() {
+            let filter = BloomFilter::from_entries(&entries, self.bloom_filter_bits_per_entry());
+            BloomFilterIO::write(&self.name, level, next_run_num, &filter.bitmap).unwrap_or_else(
+                |why| panic!("Failed to write bloom filter for memtable flush, reason: {why}"),
+            );
+        }
 
-        self.metadata.entry_counts[level].push(entries.len());
+        self.metadata.entry_counts[level].push(num_entries);
 
         self.memtable.clear();
     }
@@ -523,13 +556,20 @@ impl Database {
         let sst = self.sst_interface();
         //search ssts within levels from youngest to oldest, return youngest value found
         let mut sst_search_result: Option<Value> = None;
+        let enable_bloom_filter = self.enable_bloom_filter();
+
         let mut buffer_pool = if self.config.enable_buffer_pool {
             Some(&mut self.buffer_pool)
         } else {
             None
         };
         let entry_counts = &self.metadata.entry_counts;
+        let bits_per_entry = &self.config.bloom_filter_bits_per_entry;
         let mut callback = |level, run| {
+            if enable_bloom_filter && !BloomFilterIO::contains(&self.name, level, run, key, *bits_per_entry, entry_counts[level][run], buffer_pool.as_deref_mut())
+                .unwrap_or_else(|why| panic!("Something went wrong trying to query bloom filter for key {key} at level {level}, sst {run}, reason: {why}")) {
+                return false;
+            }
             match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.as_deref_mut()) {
                 Err(why) => panic!("Something went wrong trying to get key {key} at level {level}, sst {run}, reason: {why}"),
                 Ok(get_attempt_result) => {
@@ -885,27 +925,36 @@ mod tests {
         db.set_compaction_policy(CompactionPolicy::None)
             .set_sst_size_ratio(2)
             .set_sst_implementation(SstImplementation::Array)
+            .set_sst_search_algorithm(SstSearchAlgorithm::Default)
             .set_enable_buffer_pool(false)
             .set_buffer_pool_capacity(1)
             .set_buffer_pool_initial_size(1)
+            .set_enable_bloom_filter(false)
+            .set_bloom_filter_bits_per_entry(1)
     }
 
     fn part2_db_alterations(db: Database) -> Database {
         db.set_compaction_policy(CompactionPolicy::None)
             .set_sst_size_ratio(2)
             .set_sst_implementation(SstImplementation::Btree)
+            .set_sst_search_algorithm(SstSearchAlgorithm::Default)
             .set_enable_buffer_pool(true)
             .set_buffer_pool_capacity(10)
             .set_buffer_pool_initial_size(4)
+            .set_enable_bloom_filter(false)
+            .set_bloom_filter_bits_per_entry(0)
     }
 
     fn part3_db_alterations(db: Database) -> Database {
         db.set_compaction_policy(CompactionPolicy::Dovstoevsky)
-            .set_enable_buffer_pool(false)
             .set_sst_size_ratio(2)
             .set_sst_implementation(SstImplementation::Btree)
-            .set_buffer_pool_capacity(64)
-            .set_buffer_pool_initial_size(16)
+            .set_sst_search_algorithm(SstSearchAlgorithm::Default)
+            .set_enable_buffer_pool(true)
+            .set_buffer_pool_capacity(10)
+            .set_buffer_pool_initial_size(4)
+            .set_enable_bloom_filter(true)
+            .set_bloom_filter_bits_per_entry(5)
     }
 
     #[test]
