@@ -554,6 +554,8 @@ impl Database {
             return Some(value);
         }
         let sst = self.sst_interface();
+        let search_algorithm = self.sst_search_algorithm();
+
         //search ssts within levels from youngest to oldest, return youngest value found
         let mut sst_search_result: Option<Value> = None;
         let enable_bloom_filter = self.enable_bloom_filter();
@@ -570,7 +572,25 @@ impl Database {
                 .unwrap_or_else(|why| panic!("Something went wrong trying to query bloom filter for key {key} at level {level}, sst {run}, reason: {why}")) {
                 return false;
             }
-            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.as_deref_mut()) {
+            let mut get = || match search_algorithm {
+                SstSearchAlgorithm::Default => sst.get(
+                    &self.name,
+                    level,
+                    run,
+                    key,
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+                SstSearchAlgorithm::BinarySearch => sst.binary_search_get(
+                    &self.name,
+                    level,
+                    run,
+                    key,
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+            };
+            match get() {
                 Err(why) => panic!("Something went wrong trying to get key {key} at level {level}, sst {run}, reason: {why}"),
                 Ok(get_attempt_result) => {
                     if get_attempt_result.is_none() {
@@ -589,7 +609,6 @@ impl Database {
     }
     pub fn scan(&mut self, key1: Key, key2: Key) -> Vec<(Key, Value)> {
         //NOTE: might be able to improve this by doing a "for each in range" on each SST instead, might not be worth it though
-        let sst = self.sst_interface();
         let results = self.memtable.scan(key1, key2);
         let mut unique_key_set: HashSet<Key> =
             results.iter().map(|(key, _)| key.to_owned()).collect();
@@ -598,6 +617,9 @@ impl Database {
             .iter()
             .map(|(key, value)| (-key, value.to_owned()))
             .collect();
+
+        let sst = self.sst_interface();
+        let search_algorithm = self.sst_search_algorithm();
 
         //for every sst (youngest to oldest)
         //scan and add values that have not been seen to the hashmap
@@ -608,7 +630,25 @@ impl Database {
         };
         let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.as_deref_mut()) {
+            let mut scan = || match search_algorithm {
+                SstSearchAlgorithm::Default => sst.scan(
+                    &self.name,
+                    level,
+                    run,
+                    (key1, key2),
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+                SstSearchAlgorithm::BinarySearch => sst.binary_search_scan(
+                    &self.name,
+                    level,
+                    run,
+                    (key1, key2),
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+            };
+            match scan() {
                 Err(why) => panic!("Something went wrong trying to scan range ({key1} to {key2}) at level {level}, sst {run}, reason: {why}"),
                 Ok(scan_result) => {
                     for (key, value) in scan_result {

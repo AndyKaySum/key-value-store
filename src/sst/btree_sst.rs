@@ -13,7 +13,7 @@ use crate::{
     util::{
         btree_info::fanout,
         filename,
-        system_info::{num_entries_per_page, ENTRY_SIZE},
+        system_info::num_entries_per_page,
         types::{Key, Level, Run, Size, Value},
     },
 };
@@ -85,6 +85,18 @@ impl SortedStringTable for Sst {
         array_sst::Sst.read(db_name, level, run)
     }
 
+    fn binary_search_get(
+        &self,
+        db_name: &str,
+        level: Level,
+        run: Run,
+        key: Key,
+        num_entries: Size,
+        buffer_pool: Option<&mut BufferPool>,
+    ) -> io::Result<Option<Value>> {
+        array_sst::Sst.binary_search_get(db_name, level, run, key, num_entries, buffer_pool)
+    }
+
     fn get(
         &self,
         db_name: &str,
@@ -112,6 +124,18 @@ impl SortedStringTable for Sst {
         let entries = get_entries_at_page(db_name, level, run, page_index, buffer_pool)?;
 
         Ok(binary_search_entries(&entries, key))
+    }
+
+    fn binary_search_scan(
+        &self,
+        db_name: &str,
+        level: Level,
+        run: Run,
+        key_range: (Key, Key),
+        num_entries: Size,
+        buffer_pool: Option<&mut BufferPool>,
+    ) -> io::Result<Vec<(Key, Value)>> {
+        array_sst::Sst.binary_search_scan(db_name, level, run, key_range, num_entries, buffer_pool)
     }
     ///Perform binary search to find the starting and end positions for our scan, then append all values within those bounds
     fn scan(
@@ -212,10 +236,7 @@ impl SortedStringTable for Sst {
     }
     ///Gets the number of entries in an sst
     fn len(&self, db_name: &str, level: Level, run: Run) -> io::Result<Size> {
-        let byte_count = direct_io::open_read(&filename::sst_path(db_name, level, run))?
-            .metadata()?
-            .len();
-        Ok(byte_count as Size / ENTRY_SIZE)
+        array_sst::Sst.len(db_name, level, run)
     }
 
     ///Compact all SST runs in a level into a single SST run, build B-tree nodes (if applicable),

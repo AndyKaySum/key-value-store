@@ -54,7 +54,17 @@ impl SortedStringTable for Sst {
         let mut file = direct_io::open_read(&filename::sst_path(db_name, level, run))?;
         deserialize_from(&mut file)
     }
-
+    fn binary_search_get(
+        &self,
+        db_name: &str,
+        level: Level,
+        run: Run,
+        key: Key,
+        num_entries: Size,
+        buffer_pool: Option<&mut BufferPool>,
+    ) -> io::Result<Option<Value>> {
+        self.get(db_name, level, run, key, num_entries, buffer_pool) //Default get function uses binary search
+    }
     fn get(
         &self,
         db_name: &str,
@@ -96,6 +106,17 @@ impl SortedStringTable for Sst {
             };
         }
         Ok(None)
+    }
+    fn binary_search_scan(
+        &self,
+        db_name: &str,
+        level: Level,
+        run: Run,
+        key_range: (Key, Key),
+        num_entries: Size,
+        buffer_pool: Option<&mut BufferPool>,
+    ) -> io::Result<Vec<(Key, Value)>> {
+        self.scan(db_name, level, run, key_range, num_entries, buffer_pool) //Default scan function uses binary search
     }
     ///Perform binary search to find the starting and end positions for our scan, then append all values within those bounds
     fn scan(
