@@ -34,8 +34,9 @@ pub struct BufferPool {
 #[allow(dead_code)] //TODO: remove when ready
 impl BufferPool {
     pub fn new(initial_size: Size, capacity: Size) -> Self {
+        //NOTE: bucket capacity of 16 is arbitary, just need a number that isn't too small (so bucket splits aren't triggered more than they need to be)
         Self {
-            frames: ExtendibleHashTable::with_capacity_buckets(10, initial_size, initial_size), //HashMap::with_capacity_and_hasher(capacity, hasher),
+            frames: ExtendibleHashTable::with_capacity_buckets(16, initial_size, initial_size), //HashMap::with_capacity_and_hasher(capacity, hasher),
             filename_pages: HashMap::new(),
             capacity,
             clock_handle: 0,
