@@ -287,7 +287,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     /// Can be avoided with a good hash function and large bucket size
     pub fn put(&mut self, key: K, value: V) -> bool {
         let index = self.hash_key(&key) as usize;
-        let mut added = true;
+        let mut added = true;//NOTE: vscode thinks this is unused, but that's false
 
         {
             // Limited scope for mutable borrow
@@ -362,7 +362,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
             let elements = std::mem::take(&mut bucket.elements);
             drop(bucket);
 
-            println!("Elements len: {}", elements.len());
             for element in elements {
                 let index = self.hash_key(&element.0);
                 if index & high_bit == 0 {
