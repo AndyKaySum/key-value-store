@@ -50,7 +50,7 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
 
         if found {
             // Remove the element at the found index and push it to the back
-            if let Some(_) = self.elements.remove(found_index) {
+            if self.elements.remove(found_index).is_some() {
                 self.elements.push_back((element.0, element.1));
             }
             return false;
@@ -78,7 +78,7 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
 
         if found {
             // Remove the element at the found index and push it to the back
-            if let Some(_) = self.elements.remove(found_index) {
+            if self.elements.remove(found_index).is_some() {
                 self.elements.push_back((element.0, element.1));
             }
             return false;
@@ -224,7 +224,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         self.buckets.len()
     }
     pub fn get(&self, key: &K) -> Option<V> {
-        let bucket_index = self.hash_key(&key) as usize;
+        let bucket_index = self.hash_key(key) as usize;
         let bucket = match self.get_bucket(bucket_index) {
             Some(bucket) => bucket,
             None => {
@@ -272,6 +272,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     /// Can be avoided with a good hash function and large bucket size
     pub fn put(&mut self, key: K, value: V) -> bool {
         let index = self.hash_key(&key) as usize;
+        #[allow(unused_assignments)]
         let mut added = true; //NOTE: vscode thinks this is unused, but that's false
 
         {
@@ -439,7 +440,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     }
     pub fn accessed(&self, index: usize) -> bool {
         let bucket = self.buckets[index].borrow();
-        return bucket.get_accessed();
+        bucket.get_accessed()
     }
     pub fn set_accessed(&mut self, index: usize, accessed: bool) {
         let mut bucket = self.buckets[index].borrow_mut();
