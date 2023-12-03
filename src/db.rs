@@ -32,9 +32,9 @@ impl Config {
             memtable_capacity: system_info::num_entries_per_page(),
             sst_size_ratio: Database::DEFAULT_SST_SIZE_RATIO,
             sst_implementation: SstImplementation::Array,
-            enable_buffer_pool: false,   //TODO: change in step 2
-            buffer_pool_capacity: 0,     //TODO: change in step 2
-            buffer_pool_initial_size: 0, //TODO change in step 2
+            enable_buffer_pool: true,
+            buffer_pool_capacity: Database::DEFAULT_BUFFER_POOL_CAPACITY,
+            buffer_pool_initial_size: Database::DEFAULT_BUFFER_POOL_INITIAL_SIZE,
             compaction_policy: CompactionPolicy::None,
         }
     }
@@ -65,6 +65,9 @@ pub struct Database {
 #[allow(dead_code)]
 impl Database {
     const DEFAULT_SST_SIZE_RATIO: Size = 2;
+    const DEFAULT_BUFFER_POOL_CAPACITY: Size = 2560; //Enough for 10MB of 4096 byte pages
+    const DEFAULT_BUFFER_POOL_INITIAL_SIZE: Size = 97; //NOTE: this was arbitrarily chosen: closest prime number to 100
+
     const LEVEL_ZERO: Level = 0; //Constant for step 1 and 2, needs to be removed in step 3
 
     //RESERVED VALUES BELOW (not allowed for normal input)
@@ -138,15 +141,36 @@ impl Database {
         self.config.buffer_pool_capacity
     }
     pub fn set_buffer_pool_capacity(mut self, buffer_pool_capacity: Size) -> Self {
+        assert!(
+            buffer_pool_capacity > 0,
+            "Buffer pool capacity must be over zero"
+        );
+        self.buffer_pool.set_capacity(buffer_pool_capacity);
         self.config.buffer_pool_capacity = buffer_pool_capacity;
         self
+    }
+    pub fn set_buffer_pool_capacity_mb(self, buffer_pool_capacity_mb: Size) -> Self {
+        let num_pages = buffer_pool_capacity_mb * 2_usize.pow(20) / system_info::page_size();
+        self.set_buffer_pool_capacity(num_pages)
     }
     pub fn buffer_pool_initial_size(&self) -> Size {
         self.config.buffer_pool_initial_size
     }
     pub fn set_buffer_pool_initial_size(mut self, buffer_pool_initial_size: Size) -> Self {
+        assert!(
+            buffer_pool_initial_size > 0,
+            "Buffer pool initial size must be over zero"
+        );
+        if buffer_pool_initial_size != self.buffer_pool_initial_size() {
+            self.buffer_pool =
+                BufferPool::new(buffer_pool_initial_size, self.buffer_pool_capacity())
+        }
         self.config.buffer_pool_initial_size = buffer_pool_initial_size;
         self
+    }
+    pub fn set_buffer_pool_initial_size_mb(self, buffer_pool_initial_size_mb: Size) -> Self {
+        let num_pages = buffer_pool_initial_size_mb * 2_usize.pow(20) / system_info::page_size();
+        self.set_buffer_pool_initial_size(num_pages)
     }
     pub fn compaction_policy(&self) -> CompactionPolicy {
         self.config.compaction_policy
@@ -368,7 +392,7 @@ impl Database {
         };
         let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.take()) {
+            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.as_deref_mut()) {
                 Err(why) => panic!("Something went wrong trying to get key {key} at level {level}, sst {run}, reason: {why}"),
                 Ok(get_attempt_result) => {
                     if get_attempt_result.is_none() {
@@ -406,7 +430,7 @@ impl Database {
         };
         let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.take()) {
+            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.as_deref_mut()) {
                 Err(why) => panic!("Something went wrong trying to scan range ({key1} to {key2}) at level {level}, sst {run}, reason: {why}"),
                 Ok(scan_result) => {
                     for (key, value) in scan_result {
@@ -718,20 +742,20 @@ mod tests {
 
     fn part1_db_alterations(db: Database) -> Database {
         db.set_compaction_policy(CompactionPolicy::None)
-            .set_enable_buffer_pool(false)
             .set_sst_size_ratio(2)
             .set_sst_implementation(SstImplementation::Array)
-            .set_buffer_pool_capacity(0)
-            .set_buffer_pool_initial_size(0)
+            .set_enable_buffer_pool(false)
+            .set_buffer_pool_capacity(1)
+            .set_buffer_pool_initial_size(1)
     }
 
     fn part2_db_alterations(db: Database) -> Database {
         db.set_compaction_policy(CompactionPolicy::None)
-            .set_enable_buffer_pool(false)
             .set_sst_size_ratio(2)
             .set_sst_implementation(SstImplementation::Btree)
-            .set_buffer_pool_capacity(64)
-            .set_buffer_pool_initial_size(16)
+            .set_enable_buffer_pool(true)
+            .set_buffer_pool_capacity(10)
+            .set_buffer_pool_initial_size(4)
     }
 
     #[test]
