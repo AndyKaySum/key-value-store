@@ -318,7 +318,11 @@ impl Database {
         let db_name = &self.name;
         let next_level = level + 1;
         let entry_counts = &mut self.metadata.entry_counts;
-        let mut buffer_pool: Option<&mut BufferPool> = None; //TODO: switch None with bufferpool
+        let mut buffer_pool = if self.config.enable_buffer_pool {
+            Some(&mut self.buffer_pool)
+        } else {
+            None
+        };
 
         assert!(
             entry_counts.get(level).is_some(),
@@ -392,23 +396,28 @@ impl Database {
         let is_last_level = level == self.metadata.entry_counts.len() - 1; //should discard tombstones on last level only
 
         let compact = |db: &mut Database| {
-            let mut buffer_pool = None; //TODO: handle buffer pool
+            let num_runs = db.sst_count(level);
+            let sst = db.sst_interface();
+            let mut buffer_pool = if db.config.enable_buffer_pool {
+                Some(&mut db.buffer_pool)
+            } else {
+                None
+            };
 
             //remove bloom filter files, a new one will be made after compaction
-            for run in 0..db.sst_count(level) {
+            for run in 0..num_runs {
                 file_interface::remove_file(&filename::bloom_filter_path(&db.name, level, run), buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to delete bloom filter file at level: {level} run: {run}, reason: {why}"))
             }
 
             //compact SSTs
-            db.sst_interface()
-                .compact(
-                    &db.name,
-                    level,
-                    &mut db.metadata.entry_counts[level],
-                    is_last_level,
-                    buffer_pool,
-                )
-                .unwrap_or_else(|why| panic!("Failed to compact level {level}, reason {why}"));
+            sst.compact(
+                &db.name,
+                level,
+                &mut db.metadata.entry_counts[level],
+                is_last_level,
+                buffer_pool,
+            )
+            .unwrap_or_else(|why| panic!("Failed to compact level {level}, reason {why}"));
 
             //write new bloom filter (if there is something left after compaction)
             if db.enable_bloom_filter() && !db.metadata.entry_counts[level].is_empty() {
