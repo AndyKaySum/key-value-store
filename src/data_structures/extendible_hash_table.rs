@@ -259,9 +259,10 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
             self.try_insert(element.0, element.1);
         }
     }
+    ///Attempts to insert value into hashtable. NOTE: this can fail if bucket inserting into is full.
+    /// This happens when we get unlucky on the rehash and all elements get put into one bucket.
+    /// Can be avoided with a good hash function and large bucket size
     pub fn try_insert(&mut self, key: K, value: V) -> bool {
-        //fails if bucket inserting into is full. This happens when we get unlucky on the rehash and all elements get put into one bucket.
-        //can be avoided with a good hash function and large bucket size
         let index = self.hash_key(&key) as usize;
 
         let added = self
