@@ -96,17 +96,10 @@ impl BufferPool {
             self.evict(self.len() - self.capacity + 1); //evict enough, so that we have space for 1 insertion
         }
 
-        //Add to actual buffer pool
-        let mut count = 0;
-        let failure_threshold = 4;
-        //NOTE: if very unlucky extendible hashtable may fail to add values, happens when a bucket splits and all existing values are
-        while !self.frames.put(
+        self.frames.put(
             (path.to_string(), page_index),
             Frame::new(page_data.to_vec()),
-        ) && count < failure_threshold
-        {
-            count += 0;
-        }
+        );
 
         //Add page index to our metadata hashtable
         match self.filename_pages.get_mut(path) {
@@ -132,6 +125,8 @@ impl BufferPool {
 
 #[cfg(test)]
 mod tests {
+    use crate::util::system_info::page_size;
+
     use super::*;
     #[test]
     fn test_insert() {
@@ -149,10 +144,10 @@ mod tests {
     fn test_eviction() {
         let mut b = BufferPool::new(1, 3);
         let path = "database/0/0.sst";
-        b.insert(path, 0, &vec![0, 0, 0, 0, 0]);
-        b.insert(path, 1, &vec![0, 0, 0, 0, 1]);
-        b.insert(path, 2, &vec![0, 0, 0, 1, 0]);
-        b.insert(path, 3, &vec![0, 0, 0, 1, 1]);
+        b.insert(path, 0, &[0, 0, 0, 0, 0]);
+        b.insert(path, 1, &[0, 0, 0, 0, 1]);
+        b.insert(path, 2, &[0, 0, 0, 1, 0]);
+        b.insert(path, 3, &[0, 0, 0, 1, 1]);
 
         assert_eq!(b.len(), 3); //Make sure that we don't go over capacity
 
@@ -160,7 +155,7 @@ mod tests {
         assert_eq!(b.get(path, 3), Some(vec![0, 0, 0, 1, 1]));
         assert_eq!(b.get(path, 0), None);
 
-        b.insert(path, 4, &vec![0, 0, 1, 0, 0]);
+        b.insert(path, 4, &[0, 0, 1, 0, 0]);
 
         //check if new page is added and oldest is evicted
         assert_eq!(b.get(path, 4), Some(vec![0, 0, 1, 0, 0]));
@@ -169,7 +164,7 @@ mod tests {
         //Our oldest page should be 2 at this point, when we access it, 3 should be our oldest and get evicted on next insert
         b.get(path, 2);
 
-        b.insert(path, 5, &vec![0, 0, 1, 0, 1]);
+        b.insert(path, 5, &[0, 0, 1, 0, 1]);
 
         //check if new page is added and oldest is evicted
         assert_eq!(b.get(path, 5), Some(vec![0, 0, 1, 0, 1]));
@@ -181,9 +176,9 @@ mod tests {
         let mut b = BufferPool::new(1, 3);
         let path = "database/0/0.sst";
         let path2 = "database/0/1.sst";
-        b.insert(path, 0, &vec![0, 0, 0, 0, 0]);
-        b.insert(path, 1, &vec![0, 0, 0, 0, 1]);
-        b.insert(path2, 0, &vec![0, 0, 0, 1, 0]);
+        b.insert(path, 0, &[0, 0, 0, 0, 0]);
+        b.insert(path, 1, &[0, 0, 0, 0, 1]);
+        b.insert(path2, 0, &[0, 0, 0, 1, 0]);
 
         //Should remove all pages with path, but nothing else
         b.remove(path);
@@ -196,13 +191,28 @@ mod tests {
     fn test_set_capacity() {
         let mut b = BufferPool::new(1, 3);
         let path = "database/0/0.sst";
-        b.insert(path, 0, &vec![0, 0, 0, 0, 0]);
-        b.insert(path, 1, &vec![0, 0, 0, 0, 1]);
-        b.insert(path, 2, &vec![0, 0, 0, 1, 0]);
+        b.insert(path, 0, &[0, 0, 0, 0, 0]);
+        b.insert(path, 1, &[0, 0, 0, 0, 1]);
+        b.insert(path, 2, &[0, 0, 0, 1, 0]);
 
         b.set_capacity(1);
         assert_eq!(b.get(path, 0), None);
         assert_eq!(b.get(path, 1), None);
         assert_eq!(b.get(path, 2), Some(vec![0, 0, 0, 1, 0]));
+    }
+
+    #[test]
+    fn test_large() {
+        let mut b = BufferPool::new(4, 10);
+        let path = "database/0/0.sst";
+
+        let page = |_index| {
+            let page_data: Vec<u8> = vec![0; page_size()];
+            page_data
+        };
+
+        for i in 0..10000 {
+            b.insert(path, i, &page(i));
+        }
     }
 }

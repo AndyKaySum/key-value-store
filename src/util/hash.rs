@@ -28,7 +28,7 @@ impl FastHasher {
 
 impl std::hash::Hasher for FastHasher {
     fn write(&mut self, bytes: &[u8]) {
-        hash(bytes, self.seed);
+        self.state = hash(bytes, self.seed);
     }
     fn finish(&self) -> u64 {
         self.state
