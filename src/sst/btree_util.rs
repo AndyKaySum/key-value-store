@@ -9,14 +9,14 @@ use crate::util::system_info::num_entries_per_page;
 use crate::util::types::{Depth, Level, Node, Run};
 use crate::util::types::{Key, Page, Size};
 
-use super::sst_util::get_btree_page;
+use super::sst_util::{get_btree_page, num_pages};
 
 pub fn has_inner_nodes(num_entries: Size) -> bool {
     num_entries <= num_entries_per_page()
 }
 
 pub fn num_leaves(num_entries: Size) -> Size {
-    ceil_div!(num_entries, num_entries_per_page())
+    num_pages(num_entries)
 }
 
 ///Depth of B-tree, same as number of inner node levels

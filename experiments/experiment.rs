@@ -2,11 +2,17 @@ use csc443_project::{
     db::Database,
     util::{
         system_info::ENTRY_SIZE,
-        types::{Key, Value},
+        testing,
+        types::{Key, SstSearchAlgorithm, Value},
     },
 };
 
 use crate::benchmarker::Benchmarker;
+
+const MEMTABLE_MB_SIZE: usize = 1;
+const BUFFER_POOL_INITIAL_MB_SIZE: usize = 2;
+const BUFFER_POOL_CAPACITY_MB_SIZE: usize = 10;
+const BLOOM_FILTER_BITS_PER_ENTRY: usize = 5;
 
 pub fn run(
     database_alterations: Box<dyn FnMut(Database) -> Database>,
@@ -21,7 +27,7 @@ pub fn run(
         .map(|value: &usize| value * bytes_per_mb)
         .collect();
     let num_elements_in_smallest_db = (db_byte_sizes.first().unwrap() / ENTRY_SIZE) as Key; //For experiments where we want to use keys in the db
-    let num_elements_in_largest_db = (db_byte_sizes.last().unwrap() / ENTRY_SIZE) as Key; //For experiments where we want to use keys that are not in the db
+                                                                                            // let num_elements_in_largest_db = (db_byte_sizes.last().unwrap() / ENTRY_SIZE) as Key; //For experiments where we want to use keys that are not in the db
 
     println!("Experiment details: ");
     println!("number of trials for each experiment: {num_trials}");
@@ -67,9 +73,12 @@ pub fn run(
     let scan_results = bm.run_experiment(scan_experiment, &scan_ranges);
     println!("{:?}", scan_results);
 
-    //put range ensures that we are inserting new values
-    let put_range_lower = -num_elements_in_largest_db;
-    let put_range_upper = 0;
+    //put range has a low probability of adding something already in the memtable
+    let memtable_entry_size = MEMTABLE_MB_SIZE * 2_usize.pow(20) / ENTRY_SIZE;
+    let put_universe_size = memtable_entry_size as i64 * 100;
+    let put_range_lower = -put_universe_size / 2;
+    let put_range_upper = put_universe_size / 2;
+
     println!(
         "put experiment, put random (value, value*2) as (key, value) in range {}..{}",
         put_range_lower, put_range_upper
@@ -81,7 +90,7 @@ pub fn run(
         .map(|value| (value, value * 2))
         .collect();
     let put_results = bm.run_reset_experiment(put_experiment, &put_experiment_input);
-    println!("{:?}", put_results);
+    println!("{:?}\n", put_results);
 
     (db_mb_sizes, [get_results, scan_results, put_results])
 }
@@ -100,4 +109,107 @@ pub fn run_and_save(database_alterations: Box<dyn FnMut(Database) -> Database>, 
 
     std::fs::write(format!("{filename}.csv"), output)
         .unwrap_or_else(|_| panic!("Unable to write file for {}", filename));
+}
+
+pub fn common_database_alterations(db: Database) -> Database {
+    db.set_memtable_capacity_mb(MEMTABLE_MB_SIZE)
+        .set_buffer_pool_capacity_mb(BUFFER_POOL_CAPACITY_MB_SIZE)
+        .set_buffer_pool_initial_size_mb(BUFFER_POOL_INITIAL_MB_SIZE)
+        .set_bloom_filter_bits_per_entry(BLOOM_FILTER_BITS_PER_ENTRY)
+}
+
+pub fn part1() {
+    /*
+        Design an experiment comparing your binary search to B-tree search in terms of query
+        throughput (on the y-axis) as you increase the data size (on the x-axis). This
+        experiment should be done with uniformly randomly distributed point queries and data.
+        The buffer pool should be enabled in this experiment, and the data should grow beyond
+        the maximum buffer pool size so that evictions kick in. Explain your findings.
+    */
+    println!("Part 1: Experiment");
+    println!("Memtable Size: {} MB\n", MEMTABLE_MB_SIZE);
+
+    let database_alterations = |db: Database| -> Database {
+        common_database_alterations(testing::part1_db_alterations(db))
+    };
+
+    run_and_save(Box::new(database_alterations), "part1_experiments");
+}
+
+pub fn part2() {
+    /*
+        Design an experiment comparing your binary search to B-tree search in
+        terms of query throughput (on the y-axis) as you increase the data size (on the x-axis).
+        This experiment should be done with uniformly randomly distributed point queries and data.
+        The buffer pool should be enabled in this experiment, and the data should grow beyond the maximum
+        buffer pool size so that evictions kick in. Explain your findings.
+    */
+    println!("Part 2: Experiment (b-tree)");
+    println!("Memtable Size: {} MB", MEMTABLE_MB_SIZE);
+    println!(
+        "Buffer pool initial size: {} MB",
+        BUFFER_POOL_INITIAL_MB_SIZE
+    );
+    println!(
+        "Buffer pool capacity: {} MB\n",
+        BUFFER_POOL_CAPACITY_MB_SIZE
+    );
+
+    let btree_database_alterations = |db: Database| -> Database {
+        common_database_alterations(testing::part2_db_alterations(db))
+            .set_sst_search_algorithm(SstSearchAlgorithm::Default)
+    };
+    run_and_save(
+        Box::new(btree_database_alterations),
+        "part2_btree_experiments",
+    );
+
+    println!("Part 2: Experiment (binary search)");
+    println!("Memtable Size: {} MB", MEMTABLE_MB_SIZE);
+    println!(
+        "Buffer pool initial size: {} MB",
+        BUFFER_POOL_INITIAL_MB_SIZE
+    );
+    println!(
+        "Buffer pool capacity: {} MB\n",
+        BUFFER_POOL_CAPACITY_MB_SIZE
+    );
+
+    let binary_search_database_alterations = |db: Database| -> Database {
+        common_database_alterations(testing::part2_db_alterations(db))
+            .set_sst_search_algorithm(SstSearchAlgorithm::BinarySearch)
+    };
+    run_and_save(
+        Box::new(binary_search_database_alterations),
+        "part2_binary_search_experiments",
+    );
+}
+
+pub fn part3() {
+    /*
+        Measure insertion, get, and scan throughput for your implementation over time as the data
+        size grows. Describe your experimental setup and make sure all relevant variables are
+        controlled. Please fix the buffer pool size to 10 MB, the Bloom filters to use 5 bits per entry,
+        and the memtable to 1 MB. Run this experiment as you insert 1 GB of data. Measure get and
+        scan throughput at regular intervals as you insert this data. If you did any of the bonus
+        tasks, please make sure to report how they are used in the experiment.
+    */
+
+    println!("Part 3: Experiment");
+    println!("Memtable Size: {} MB", MEMTABLE_MB_SIZE);
+    println!(
+        "Buffer pool initial size: {} MB",
+        BUFFER_POOL_INITIAL_MB_SIZE
+    );
+    println!("Buffer pool capacity: {} MB", BUFFER_POOL_CAPACITY_MB_SIZE);
+    println!(
+        "Bloom filter bits per entry: {}\n",
+        BUFFER_POOL_CAPACITY_MB_SIZE
+    );
+
+    let database_alterations = |db: Database| -> Database {
+        common_database_alterations(testing::part3_db_alterations(db))
+    };
+
+    run_and_save(Box::new(database_alterations), "part3_experiments");
 }

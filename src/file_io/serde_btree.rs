@@ -38,15 +38,9 @@ pub fn serialize_into(writer: &mut dyn std::io::Write, node_elements: &[Key]) ->
 ///Deserializes initial bytes of buffer into key-node_index pair.
 /// NOTE: the buffer must be large enough to fit a key and node index type. Following bytes afterwards are ignored
 pub fn deserialize_element(buffer: &[u8]) -> Result<Key, std::array::TryFromSliceError> {
-    // let (key_slice, value_slice) = buffer.split_at(std::mem::size_of::<Key>());
-
     let key_bytes: [u8; std::mem::size_of::<Key>()] = buffer.try_into()?;
-    // let value_bytes: [u8; std::mem::size_of::<Node>()] = value_slice.try_into()?;
-
     let key = Key::from_le_bytes(key_bytes);
-    // let value = Node::from_le_bytes(value_bytes);
 
-    // Ok((key, value))
     Ok(key)
 }
 
@@ -81,26 +75,6 @@ pub fn deserialize(buffer: &[u8]) -> Result<Vec<Key>, String> {
     }
     Ok(node_elements)
 }
-
-// pub fn serialize_tree_metadata(metadata: &BtreeMetadata) -> Vec<u8> {
-//     metadata.to_le_bytes()
-// }
-
-// pub fn serialize_tree_metadata_into(writer: &mut File, metadata: &BtreeMetadata) -> io::Result<()> {
-//     let mut buffer = serialize_tree_metadata(metadata);
-//     let buffer_len = buffer.len();
-//     //Direct IO requires that we write some multiple of a minimum write size
-//     //we will use the page size (mimimum write size is smaller for some machines, mine is 512 bytes for example),
-//     //and then resize the file to be the actual number of bytes written
-//     buffer.resize(nearest_min_write_size_multiple(buffer_len), 0);
-//     writer.write_all(&buffer)?;
-//     writer.set_len(buffer_len as u64)?;
-//     Ok(())
-// }
-
-// pub fn deserialize_tree_metadata(buffer: &[u8]) -> Result<BtreeMetadata, std::array::TryFromSliceError> {
-//     BtreeMetadata::from_le_bytes(buffer)
-// }
 
 #[test]
 fn test_serde() {

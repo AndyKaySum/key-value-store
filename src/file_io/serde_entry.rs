@@ -78,6 +78,9 @@ pub fn buffered_deserialize_from(
     reader: &mut impl std::io::Read,
     buffer_size: usize,
 ) -> io::Result<Vec<(Key, Value)>> {
+    if buffer_size == 0 {
+        return Ok(vec![]);
+    }
     let mut buffer: Vec<u8> = vec![0; buffer_size];
     let bytes_read = reader.read(&mut buffer)?;
     Ok(deserialize(&buffer[..bytes_read]).unwrap()) //NOTE: can unwrap because buffer size determines if we get an error, which we control

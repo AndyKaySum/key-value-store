@@ -1,7 +1,7 @@
 pub mod array_sst;
 pub mod btree_sst;
 mod btree_util;
-mod sst_util;
+pub mod sst_util;
 
 use std::io;
 
@@ -25,7 +25,7 @@ pub trait SortedStringTable {
     ///Deserializes entire SST
     fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<(Key, Value)>>;
 
-    ///Binary search for specific key
+    ///Search for specific key
     fn get(
         &self,
         db_name: &str,
@@ -36,8 +36,30 @@ pub trait SortedStringTable {
         buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Option<Value>>;
 
-    ///Range scan operation, goes page by page using direct I/O
+    //Search for a specific key using binary search explicitly
+    fn binary_search_get(
+        &self,
+        db_name: &str,
+        level: Level,
+        run: Run,
+        key: Key,
+        num_entries: Size,
+        buffer_pool: Option<&mut BufferPool>,
+    ) -> io::Result<Option<Value>>;
+
+    ///Range scan operation. NOTE: key range is inclusive
     fn scan(
+        &self,
+        db_name: &str,
+        level: Level,
+        run: Run,
+        key_range: (Key, Key),
+        num_entries: Size,
+        buffer_pool: Option<&mut BufferPool>,
+    ) -> io::Result<Vec<(Key, Value)>>;
+
+    ///Range scan operation using binary search explicitly. NOTE: key range is inclusive
+    fn binary_search_scan(
         &self,
         db_name: &str,
         level: Level,
@@ -50,12 +72,13 @@ pub trait SortedStringTable {
     //Number of entries in SST
     fn len(&self, db_name: &str, level: Level, run: Run) -> io::Result<Size>;
 
-    ///Compact all SSTs in a level into a single SST
+    ///Compact all SST runs in a level into a single SST run and update entry_counts to reflect that
     fn compact(
         &self,
         db_name: &str,
         level: Level,
-        entry_counts: &[Size],
+        entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
-    ) -> io::Result<Size>;
+        buffer_pool: Option<&mut BufferPool>,
+    ) -> io::Result<()>;
 }

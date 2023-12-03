@@ -2,13 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BinaryHeap, HashSet},
     fs,
+    path::Path,
 };
 
 use crate::{
     buffer_pool::BufferPool,
+    ceil_div,
+    file_io::{direct_io, file_interface},
+    filter::{bloom_filter::BloomFilter, bloom_io::BloomFilterIO},
     memtable::Memtable,
     sst::{array_sst, btree_sst, SortedStringTable},
-    util::filename,
+    util::{filename, types::SstSearchAlgorithm},
     util::{
         system_info::{self, ENTRY_SIZE},
         types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value},
@@ -20,10 +24,13 @@ struct Config {
     memtable_capacity: Size, //in terms of number of entries
     sst_size_ratio: Size,    //size ratio between sst levels
     sst_implementation: SstImplementation,
+    sst_search_algorithm: SstSearchAlgorithm,
     enable_buffer_pool: bool,
     buffer_pool_capacity: Size,
     buffer_pool_initial_size: Size,
     compaction_policy: CompactionPolicy,
+    enable_bloom_filter: bool,
+    bloom_filter_bits_per_entry: Size,
 }
 
 impl Config {
@@ -32,10 +39,13 @@ impl Config {
             memtable_capacity: system_info::num_entries_per_page(),
             sst_size_ratio: Database::DEFAULT_SST_SIZE_RATIO,
             sst_implementation: SstImplementation::Array,
+            sst_search_algorithm: SstSearchAlgorithm::Default,
             enable_buffer_pool: true,
             buffer_pool_capacity: Database::DEFAULT_BUFFER_POOL_CAPACITY,
             buffer_pool_initial_size: Database::DEFAULT_BUFFER_POOL_INITIAL_SIZE,
             compaction_policy: CompactionPolicy::None,
+            enable_bloom_filter: true,
+            bloom_filter_bits_per_entry: Database::DEFAULT_BITS_PER_ENTRY,
         }
     }
 }
@@ -67,14 +77,15 @@ impl Database {
     const DEFAULT_SST_SIZE_RATIO: Size = 2;
     const DEFAULT_BUFFER_POOL_CAPACITY: Size = 2560; //Enough for 10MB of 4096 byte pages
     const DEFAULT_BUFFER_POOL_INITIAL_SIZE: Size = 97; //NOTE: this was arbitrarily chosen: closest prime number to 100
+    const DEFAULT_BITS_PER_ENTRY: Size = 5;
 
-    const LEVEL_ZERO: Level = 0; //Constant for step 1 and 2, needs to be removed in step 3
+    const LEVEL_ZERO: Level = 0;
 
     //RESERVED VALUES BELOW (not allowed for normal input)
     ///Reserved tombstone value
-    const TOMBSTONE_VALUE: Value = Value::MIN;
+    pub const TOMBSTONE_VALUE: Value = Value::MIN;
     ///Reserved this value so we can use negative keys without errors in our min heap in scan (try negative 32::MIN and see what happens)
-    const INVALID_KEY: Key = Key::MIN;
+    pub const INVALID_KEY: Key = Key::MIN;
     ///Reserved DB name for when no DB is open (like a null value)
     const NO_OPEN_DB_NAME: &str = "";
 
@@ -130,6 +141,13 @@ impl Database {
         self.config.sst_implementation = sst_implementation;
         self
     }
+    pub fn sst_search_algorithm(&self) -> SstSearchAlgorithm {
+        self.config.sst_search_algorithm
+    }
+    pub fn set_sst_search_algorithm(mut self, sst_search_algorithm: SstSearchAlgorithm) -> Self {
+        self.config.sst_search_algorithm = sst_search_algorithm;
+        self
+    }
     pub fn enable_buffer_pool(&self) -> bool {
         self.config.enable_buffer_pool
     }
@@ -179,15 +197,36 @@ impl Database {
         self.config.compaction_policy = compaction_policy;
         self
     }
+    pub fn enable_bloom_filter(&self) -> bool {
+        self.config.enable_bloom_filter
+    }
+    pub fn set_enable_bloom_filter(mut self, enable_buffer_pool: bool) -> Self {
+        self.config.enable_bloom_filter = enable_buffer_pool;
+        self
+    }
+    pub fn bloom_filter_bits_per_entry(&self) -> Size {
+        self.config.bloom_filter_bits_per_entry
+    }
+    pub fn set_bloom_filter_bits_per_entry(mut self, bits_per_entry: Size) -> Self {
+        self.config.bloom_filter_bits_per_entry = bits_per_entry;
+        self
+    }
     fn is_closed(&self) -> bool {
         self.name == Self::NO_OPEN_DB_NAME
     }
-    ///Gets number of SSTs in level, NOTE: a value of 0 can mean that there is no level
+    ///Gets number of SST runs in level, NOTE: a value of 0 can mean that there is no level
     fn sst_count(&self, level: Level) -> Size {
         match self.metadata.entry_counts.get(level) {
             None => 0,
             Some(level_entry_counts) => level_entry_counts.len(),
         }
+    }
+    ///Gets total number of SST runs in database
+    fn sst_total(&self) -> Size {
+        self.metadata
+            .entry_counts
+            .iter()
+            .fold(0, |acc, counts| acc + counts.len())
     }
     //GETTERS AND SETTERS (end)
 
@@ -274,28 +313,155 @@ impl Database {
         self.config = Config::new();
         self.memtable.clear();
     }
+    ///Move all SST runs to the next larger (and older) level, along with any files and metadata tied to those SST runs.
+    fn move_runs(&mut self, level: Level) {
+        let db_name = &self.name;
+        let next_level = level + 1;
+        let entry_counts = &mut self.metadata.entry_counts;
+        let mut buffer_pool = if self.config.enable_buffer_pool {
+            Some(&mut self.buffer_pool)
+        } else {
+            None
+        };
+
+        assert!(
+            entry_counts.get(level).is_some(),
+            "Level {level} does not exist, cannot flush"
+        );
+        if entry_counts[level].is_empty() {
+            return; //Nothing to flush to the next level
+        }
+
+        //Step 0: make sure we have entry counts on the next level, if not add an empty vec
+        //        and the directory needed to hold files for that level
+        let num_runs_in_next_level: Run = match entry_counts.get(next_level) {
+            Some(entry_count) => entry_count.len(),
+            None => {
+                let directory = filename::lsm_level_directory(db_name, next_level);
+                if !direct_io::path_exists(&directory) {
+                    fs::create_dir(&directory).unwrap_or_else(|why| {
+                        panic!("Unable to create directory for level {next_level}, reason {why}")
+                    });
+                }
+                entry_counts.push(vec![]);
+                0
+            }
+        };
+
+        //Step 1: Move each run and associated files to next level with new run number
+        for run in 0..entry_counts[level].len() {
+            let new_run = run + num_runs_in_next_level; //run number to rename assign to our run when it's moved
+
+            //rename SST file
+            let sst_path = filename::sst_path(db_name, level, run);
+            let new_sst_path = filename::sst_path(db_name, next_level, new_run);
+
+            assert!(
+                !Path::new(&new_sst_path).exists(),
+                "{new_sst_path} already_exists!"
+            );
+            file_interface::rename_file(&sst_path, &new_sst_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename SST file from {sst_path} to {new_sst_path}, reason: {why}")); //every run has an SST file (don't need to check if it exists)
+
+            //rename B-tree file (if applicable)
+            let btree_path = filename::sst_btree_path(db_name, level, run);
+            if Path::new(&btree_path).exists() {
+                let new_btree_path = filename::sst_btree_path(db_name, next_level, new_run);
+                file_interface::rename_file(&btree_path, &new_btree_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename B-tree file from {btree_path} to {new_btree_path}, reason: {why}"));
+            }
+
+            //rename bloom filter (if applicable)
+            let bloom_path = filename::bloom_filter_path(db_name, level, run);
+            if Path::new(&bloom_path).exists() {
+                let new_bloom_path = filename::bloom_filter_path(db_name, next_level, new_run);
+                file_interface::rename_file(&bloom_path, &new_bloom_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename bloom filter file from {bloom_path} to {new_bloom_path}, reason: {why}"));
+            }
+        }
+
+        //Step 2: move metadata to next level
+        let mut curr_level_counts = Vec::<Size>::new();
+        std::mem::swap(&mut curr_level_counts, &mut entry_counts[level]);
+        entry_counts[next_level].extend(curr_level_counts);
+
+        //Step 3: handle compaction
+        self.handle_compaction(level + 1)
+    }
     ///compacts depending on number of ssts at level and compaction policy
     fn handle_compaction(&mut self, level: Level) {
-        let _num_runs = self.sst_count(level);
-        let _max_runs = self.config.sst_size_ratio.pow(level as u32);
-        let has_flushed_level = false;
-        let num_entries_after_compaction = 0; //Number of entries after compaction step
-        match self.config.compaction_policy {
-            CompactionPolicy::None => {
-                return;
-            }
-            CompactionPolicy::Basic => {
-                return;
-            }
-            _ => {} //TODO: handle compaction for policies we plan to implement
+        if level < 1 {
+            return; //Level 0 never needs to compact runs
         }
-        //if we flushed, we need to potentially handle compaction for the next level
-        if has_flushed_level && num_entries_after_compaction > 0 {
-            if self.metadata.entry_counts.get(level + 1).is_none() {
-                //new level created, with a single sst
-                self.metadata.entry_counts[level].push(num_entries_after_compaction);
+
+        let num_runs = self.sst_count(level);
+        let size_ratio = self.config.sst_size_ratio;
+        let is_last_level = level == self.metadata.entry_counts.len() - 1; //should discard tombstones on last level only
+
+        let compact = |db: &mut Database| {
+            let num_runs = db.sst_count(level);
+            let sst = db.sst_interface();
+            let mut buffer_pool = if db.config.enable_buffer_pool {
+                Some(&mut db.buffer_pool)
+            } else {
+                None
+            };
+
+            //remove bloom filter files, a new one will be made after compaction
+            for run in 0..num_runs {
+                file_interface::remove_file(&filename::bloom_filter_path(&db.name, level, run), buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to delete bloom filter file at level: {level} run: {run}, reason: {why}"))
             }
-            self.handle_compaction(level + 1)
+
+            //compact SSTs
+            sst.compact(
+                &db.name,
+                level,
+                &mut db.metadata.entry_counts[level],
+                is_last_level,
+                buffer_pool,
+            )
+            .unwrap_or_else(|why| panic!("Failed to compact level {level}, reason {why}"));
+
+            //write new bloom filter (if there is something left after compaction)
+            if db.enable_bloom_filter() && !db.metadata.entry_counts[level].is_empty() {
+                let run = 0;
+                BloomFilterIO::write_from_sst(
+                    &db.name,
+                    level,
+                    run,
+                    db.bloom_filter_bits_per_entry(),
+                    db.metadata.entry_counts[level][run],
+                )
+                .unwrap_or_else(|why| panic!("Failed to compact level {level}, reason {why}"));
+            }
+        };
+        let leveled_compact = |db: &mut Database| {
+            //LEVELED COMPACTION: greedily compact, only move runs to next level if we reach our size limit (size_ratio * run size of prev level)
+            compact(db);
+
+            //check if we reached our size limit for this level, if so, move our compacted run to next level
+            let num_entries = db.metadata.entry_counts[level].first().unwrap_or(&0);
+            let lower_lvl_run_size = db.config.memtable_capacity * size_ratio.pow(level as u32 - 1);
+            if ceil_div!(num_entries, lower_lvl_run_size) >= size_ratio {
+                db.move_runs(level)
+            }
+        };
+        let tiered_compact = |db: &mut Database| {
+            //TIERED COMPACTION: only compact once we reach our size ratio (in # of runs), then move items to the next level
+            if num_runs >= size_ratio {
+                compact(db);
+                db.move_runs(level);
+            }
+        };
+
+        match self.config.compaction_policy {
+            CompactionPolicy::None => {}
+            CompactionPolicy::Leveled => leveled_compact(self),
+            CompactionPolicy::Tiered => tiered_compact(self),
+            CompactionPolicy::Dovstoevsky => {
+                if is_last_level {
+                    leveled_compact(self);
+                } else {
+                    tiered_compact(self);
+                }
+            }
         }
     }
     fn sst_interface(&self) -> Box<dyn SortedStringTable> {
@@ -312,17 +478,31 @@ impl Database {
         }
 
         let level = Self::LEVEL_ZERO;
-        let next_run_num = self.sst_count(level);
 
-        //Write memtable to memory
-        let sst = self.sst_interface();
-        let entries = self.memtable.as_vec();
-        if let Err(why) = sst.write(&self.name, level, next_run_num, &entries) {
-            panic!("Failed to flush memtable to SST, reason: {why}");
+        //if we want compaction, we need to move the current SST at level 0 up a level
+        match self.config.compaction_policy {
+            CompactionPolicy::None => {}
+            _ => self.move_runs(level),
         };
-        self.metadata.entry_counts[level].push(entries.len());
 
-        self.handle_compaction(level);
+        let next_run_num = self.sst_count(level); //this will be zero after moving runs
+
+        //Write memtable to storage
+        let entries = self.memtable.as_vec();
+        let num_entries = entries.len();
+
+        self.sst_interface()
+            .write(&self.name, level, next_run_num, &entries)
+            .unwrap_or_else(|why| panic!("Failed to flush memtable to SST, reason: {why}"));
+
+        if self.enable_bloom_filter() {
+            let filter = BloomFilter::from_entries(&entries, self.bloom_filter_bits_per_entry());
+            BloomFilterIO::write(&self.name, level, next_run_num, &filter.bitmap).unwrap_or_else(
+                |why| panic!("Failed to write bloom filter for memtable flush, reason: {why}"),
+            );
+        }
+
+        self.metadata.entry_counts[level].push(num_entries);
 
         self.memtable.clear();
     }
@@ -383,16 +563,43 @@ impl Database {
             return Some(value);
         }
         let sst = self.sst_interface();
+        let search_algorithm = self.sst_search_algorithm();
+
         //search ssts within levels from youngest to oldest, return youngest value found
         let mut sst_search_result: Option<Value> = None;
+        let enable_bloom_filter = self.enable_bloom_filter();
+
         let mut buffer_pool = if self.config.enable_buffer_pool {
             Some(&mut self.buffer_pool)
         } else {
             None
         };
         let entry_counts = &self.metadata.entry_counts;
+        let bits_per_entry = &self.config.bloom_filter_bits_per_entry;
         let mut callback = |level, run| {
-            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.as_deref_mut()) {
+            if enable_bloom_filter && !BloomFilterIO::contains(&self.name, level, run, key, *bits_per_entry, entry_counts[level][run], buffer_pool.as_deref_mut())
+                .unwrap_or_else(|why| panic!("Something went wrong trying to query bloom filter for key {key} at level {level}, sst {run}, reason: {why}")) {
+                return false;
+            }
+            let mut get = || match search_algorithm {
+                SstSearchAlgorithm::Default => sst.get(
+                    &self.name,
+                    level,
+                    run,
+                    key,
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+                SstSearchAlgorithm::BinarySearch => sst.binary_search_get(
+                    &self.name,
+                    level,
+                    run,
+                    key,
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+            };
+            match get() {
                 Err(why) => panic!("Something went wrong trying to get key {key} at level {level}, sst {run}, reason: {why}"),
                 Ok(get_attempt_result) => {
                     if get_attempt_result.is_none() {
@@ -411,7 +618,6 @@ impl Database {
     }
     pub fn scan(&mut self, key1: Key, key2: Key) -> Vec<(Key, Value)> {
         //NOTE: might be able to improve this by doing a "for each in range" on each SST instead, might not be worth it though
-        let sst = self.sst_interface();
         let results = self.memtable.scan(key1, key2);
         let mut unique_key_set: HashSet<Key> =
             results.iter().map(|(key, _)| key.to_owned()).collect();
@@ -420,6 +626,9 @@ impl Database {
             .iter()
             .map(|(key, value)| (-key, value.to_owned()))
             .collect();
+
+        let sst = self.sst_interface();
+        let search_algorithm = self.sst_search_algorithm();
 
         //for every sst (youngest to oldest)
         //scan and add values that have not been seen to the hashmap
@@ -430,7 +639,25 @@ impl Database {
         };
         let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.as_deref_mut()) {
+            let mut scan = || match search_algorithm {
+                SstSearchAlgorithm::Default => sst.scan(
+                    &self.name,
+                    level,
+                    run,
+                    (key1, key2),
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+                SstSearchAlgorithm::BinarySearch => sst.binary_search_scan(
+                    &self.name,
+                    level,
+                    run,
+                    (key1, key2),
+                    entry_counts[level][run],
+                    buffer_pool.as_deref_mut(),
+                ),
+            };
+            match scan() {
                 Err(why) => panic!("Something went wrong trying to scan range ({key1} to {key2}) at level {level}, sst {run}, reason: {why}"),
                 Ok(scan_result) => {
                     for (key, value) in scan_result {
@@ -465,7 +692,7 @@ impl Drop for Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::btree_info::fanout;
+    use crate::util::{btree_info::fanout, testing};
 
     use super::*;
 
@@ -507,7 +734,9 @@ mod tests {
             assert_eq!(db.get(0), Some(3)); //case: sst blocking older sst search
             db.put(0, 10);
 
-            assert_eq!(db.sst_count(0), 3); // Should have flushed 3 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
+            if db.compaction_policy() == CompactionPolicy::None {
+                assert_eq!(db.sst_count(0), 3); // Should have flushed 3 times (since capacity is 2), NOTE: this will be wrong if the previous call to this function panicked
+            }
 
             //Test gets
             assert_eq!(db.get(0), Some(10));
@@ -569,8 +798,9 @@ mod tests {
                 entries.push(entry);
             }
 
-            assert_eq!(db.sst_count(0), entries.len() / memtable_cap); //NOTE: this will be wrong if the previous call to this function panicked
-
+            if db.compaction_policy() == CompactionPolicy::None {
+                assert_eq!(db.sst_count(0), entries.len() / memtable_cap); //NOTE: this will be wrong if the previous call to this function panicked
+            }
             //Test gets
             for (key, value) in entries.iter() {
                 assert_eq!(db.get(*key), Some(*value), "key: {key}");
@@ -740,32 +970,14 @@ mod tests {
         setup_and_test_and_cleaup(test_name, &mut alterations, &mut test)
     }
 
-    fn part1_db_alterations(db: Database) -> Database {
-        db.set_compaction_policy(CompactionPolicy::None)
-            .set_sst_size_ratio(2)
-            .set_sst_implementation(SstImplementation::Array)
-            .set_enable_buffer_pool(false)
-            .set_buffer_pool_capacity(1)
-            .set_buffer_pool_initial_size(1)
-    }
-
-    fn part2_db_alterations(db: Database) -> Database {
-        db.set_compaction_policy(CompactionPolicy::None)
-            .set_sst_size_ratio(2)
-            .set_sst_implementation(SstImplementation::Btree)
-            .set_enable_buffer_pool(true)
-            .set_buffer_pool_capacity(10)
-            .set_buffer_pool_initial_size(4)
-    }
-
     #[test]
     fn part_1_test_small() {
-        small_db_test("part1_small_db_test", &mut part1_db_alterations);
+        small_db_test("part1_small_db_test", &mut testing::part1_db_alterations);
     }
 
     #[test]
     fn part1_test_large() {
-        large_db_test("part1_large_db_test", &mut part1_db_alterations);
+        large_db_test("part1_large_db_test", &mut testing::part1_db_alterations);
     }
 
     #[test]
@@ -773,25 +985,44 @@ mod tests {
     fn part1_test_multi_page_btree_single_sst() {
         multi_page_btree_single_sst_db_test(
             "part1_multi_page_btree_single_sst_db_test",
-            &mut part1_db_alterations,
+            &mut testing::part1_db_alterations,
         );
     }
 
     #[test]
     fn part_2_test_small() {
-        small_db_test("part2_small_db_test", &mut part2_db_alterations);
+        small_db_test("part2_small_db_test", &mut testing::part2_db_alterations);
     }
 
     #[test]
     fn part2_test_large() {
-        large_db_test("part2_large_db_test", &mut part2_db_alterations);
+        large_db_test("part2_large_db_test", &mut testing::part2_db_alterations);
     }
 
     #[test]
     fn part2_test_multi_page_btree_single_sst() {
         multi_page_btree_single_sst_db_test(
             "part2_multi_page_btree_single_sst_db_test",
-            &mut part2_db_alterations,
+            &mut testing::part2_db_alterations,
+        );
+    }
+
+    #[test]
+    fn part_3_test_small() {
+        small_db_test("part3_small_db_test", &mut testing::part3_db_alterations);
+    }
+
+    #[test]
+    fn part3_test_large() {
+        large_db_test("part3_large_db_test", &mut testing::part3_db_alterations);
+    }
+
+    #[test]
+    #[ignore = "Test case redundant with large test"]
+    fn part3_test_multi_page_btree_single_sst() {
+        multi_page_btree_single_sst_db_test(
+            "part3_multi_page_btree_single_sst_db_test",
+            &mut testing::part3_db_alterations,
         );
     }
 }

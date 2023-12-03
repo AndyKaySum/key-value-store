@@ -34,8 +34,9 @@ pub struct BufferPool {
 #[allow(dead_code)] //TODO: remove when ready
 impl BufferPool {
     pub fn new(initial_size: Size, capacity: Size) -> Self {
+        //NOTE: bucket capacity of 16 is arbitary, just need a number that isn't too small (so bucket splits aren't triggered more than they need to be)
         Self {
-            frames: ExtendibleHashTable::with_capacity_buckets(10, initial_size, initial_size), //HashMap::with_capacity_and_hasher(capacity, hasher),
+            frames: ExtendibleHashTable::with_capacity_buckets(16, initial_size, initial_size), //HashMap::with_capacity_and_hasher(capacity, hasher),
             filename_pages: HashMap::new(),
             capacity,
             clock_handle: 0,
@@ -118,6 +119,27 @@ impl BufferPool {
             }
         }
         self.filename_pages.remove(path);
+    }
+
+    ///Update keys in bufferpool to reflect new file name.
+    /// NOTE: as a side effect this will remove any evicted pages indexes from filename_pages (which is good)
+    pub fn rename(&mut self, old_path: &str, new_path: &str) {
+        let mut new_page_indexes = HashSet::<Page>::new();
+
+        if let Some(page_indexes) = self.filename_pages.get(old_path) {
+            for page in page_indexes {
+                let frame_option = self.frames.remove(&(old_path.to_string(), *page));
+
+                //is Some() only if the page hasn't been evicted
+                if let Some((.., frame)) = frame_option {
+                    self.frames.put((new_path.to_string(), *page), frame);
+                    new_page_indexes.insert(*page);
+                }
+            }
+        }
+        self.filename_pages.remove(old_path);
+        self.filename_pages
+            .insert(new_path.to_string(), new_page_indexes);
     }
 }
 
@@ -203,6 +225,28 @@ mod tests {
         assert_eq!(b.get(path, 0), None);
         assert_eq!(b.get(path, 1), None);
         assert_eq!(b.get(path2, 0), Some(vec![0, 0, 0, 1, 0]));
+    }
+
+    #[test]
+    fn test_rename() {
+        let mut b = BufferPool::new(1, 3);
+        let path = "database/0/0.sst";
+        let path2 = "database/0/1.sst";
+        b.insert(path, 0, &[0, 0, 0, 0, 0]);
+        b.insert(path, 1, &[0, 0, 0, 0, 1]);
+        b.insert(path2, 0, &[0, 0, 0, 1, 0]);
+
+        let new_path = "database/12/0.sst";
+
+        //Should remove all pages with path, but nothing else
+        b.rename(path, new_path);
+        assert_eq!(b.get(path, 0), None);
+        assert_eq!(b.get(path, 1), None);
+        assert_eq!(b.get(new_path, 0), Some(vec![0, 0, 0, 0, 0]));
+        assert_eq!(b.get(new_path, 1), Some(vec![0, 0, 0, 0, 1]));
+        assert_eq!(b.get(path2, 0), Some(vec![0, 0, 0, 1, 0]));
+
+        assert_eq!(b.len(), 3)
     }
 
     #[test]

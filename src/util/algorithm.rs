@@ -1,24 +1,6 @@
 use crate::ceil_div;
 
 ///Binary search: from https://en.wikipedia.org/wiki/Binary_search_algorithm#Alternative_procedure
-// pub fn binary_search<T: std::cmp::PartialOrd>(array: &[T], value: T) -> Option<usize> {
-//     let (mut left, mut right) = (0, array.len() - 1);
-
-//     while left != right {
-//         let middle = ceil_div!((left + right), 2);
-//         if array[middle] > value {
-//             right = middle - 1;
-//         } else {
-//             left = middle;
-//         }
-//     }
-//     if array[left] == value {
-//         return Some(left);
-//     }
-//     None
-// }
-
-///Binary search: from https://en.wikipedia.org/wiki/Binary_search_algorithm#Alternative_procedure
 pub fn binary_search_entries<K: std::cmp::PartialOrd, V: Clone>(
     array: &[(K, V)],
     key: K,

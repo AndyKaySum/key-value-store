@@ -1,4 +1,5 @@
 /target
+*.bloom
 *.btree
 *.sst
 *.bin

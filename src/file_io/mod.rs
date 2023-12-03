@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 pub mod direct_io;
 
+pub mod file_interface;
+
 #[allow(dead_code)]
 pub mod serde_entry;
 
