@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-use std::collections::VecDeque;
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -12,7 +12,6 @@ struct Bucket<K: Debug, V: Debug> {
     local_depth: usize,
     elements: VecDeque<(K, V)>,
     capacity: usize,
-    size: usize,
     access_bit: bool,
 }
 
@@ -31,7 +30,6 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
         Bucket {
             local_depth,
             capacity,
-            size: 0,
             bucket_id,
             elements: VecDeque::with_capacity(capacity),
             access_bit: true,
@@ -60,7 +58,6 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
 
         if !self.is_full() {
             self.elements.push_back((element.0, element.1));
-            self.size += 1;
             true
         } else {
             false
@@ -87,13 +84,10 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
             return false;
         }
         self.elements.push_back((element.0, element.1));
-        self.size += 1;
         true
     }
     fn remove_element(&mut self, index: usize) -> Option<(K, V)> {
         if index < self.elements.len() {
-            self.size -= 1;
-
             self.elements.remove(index)
         } else {
             None
@@ -111,7 +105,7 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
                 };
 
                 self.add_element_ignore(removed);
-                let element = self.elements.get(self.size - 1);
+                let element = self.elements.get(self.get_size() - 1);
                 match element {
                     Some(element) => return Some(element),
                     None => return None,
@@ -131,24 +125,16 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
         self.get_size() >= self.capacity
     }
     fn get_size(&self) -> usize {
-        self.size
+        self.elements.len()
     }
     fn get_bucket_id(&self) -> usize {
         self.bucket_id
-    }
-    fn clear(&mut self) {
-        self.size = 0;
-        // self.elements.clear()
     }
     fn get_high_bit(&self) -> u64 {
         1 << self.local_depth
     }
     fn pop_front(&mut self) -> Option<(K, V)> {
-        let front = self.elements.pop_front();
-        if front.is_some() {
-            self.size -= 1;
-        }
-        front
+        self.elements.pop_front()
     }
     fn set_accessed(&mut self, accessed: bool) {
         self.access_bit = accessed;
@@ -163,11 +149,10 @@ impl<K: Debug, V: Debug> Default for Bucket<K, V> {
         // Provide the logic to create a default instance of Bucket<K, V>
         // This could be an empty bucket or a bucket with some default state
         Bucket {
-            bucket_id: 20069,
+            bucket_id: usize::MAX,
             local_depth: 0,
             elements: VecDeque::new(),
             capacity: 0,
-            size: 0,
             access_bit: true,
         }
     }
@@ -287,7 +272,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     /// Can be avoided with a good hash function and large bucket size
     pub fn put(&mut self, key: K, value: V) -> bool {
         let index = self.hash_key(&key) as usize;
-        let mut added = true;//NOTE: vscode thinks this is unused, but that's false
+        let mut added = true; //NOTE: vscode thinks this is unused, but that's false
 
         {
             // Limited scope for mutable borrow
