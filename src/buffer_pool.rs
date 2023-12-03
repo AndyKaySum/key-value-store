@@ -14,13 +14,13 @@ type PageKey = (PathString, Page);
 #[derive(Debug, Clone)] //TODO: remove Clone
 struct Frame {
     //NOTE: all vectors should be at most system_info::page_size() number of bytes
-    data: Vec<u8>,
+    bytes: Vec<u8>,
 }
 
 #[allow(dead_code, unused)] //TODO: remove when ready
 impl Frame {
-    fn new(data: Vec<u8>) -> Self {
-        Self { data }
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes }
     }
 }
 
@@ -40,7 +40,7 @@ impl BufferPool {
             frames: ExtendibleHashTable::with_capacity_buckets(10, initial_size, initial_size), //HashMap::with_capacity_and_hasher(capacity, hasher),
             filename_pages: HashMap::new(),
             capacity,
-            clock_handle: 0, //TODO: change
+            clock_handle: 0,
         }
     }
 
@@ -60,17 +60,21 @@ impl BufferPool {
     }
 
     pub fn get(&mut self, path: &str, page_index: Page) -> Option<Vec<u8>> {
+        self.move_clock_handle();
+
         let get_result = self.frames.get(&(path.to_string(), page_index));
         if let Some(frame) = get_result {
-            let data = frame.data;
+            let data = frame.bytes;
             return Some(data);
         };
         None
     }
 
     fn move_clock_handle(&mut self) {
-        self.clock_handle += 1;
-        self.clock_handle %= self.frames.num_buckets();
+        let handle = &mut self.clock_handle;
+        *handle += 1;
+        *handle %= self.frames.num_buckets();
+        self.frames.set_accessed(*handle, false);
     }
 
     fn evict(&mut self, num_to_evict: Size) {
@@ -79,11 +83,9 @@ impl BufferPool {
         while num_evicted < num_to_evict {
             let handle = self.clock_handle;
             let frames = &mut self.frames;
-            if frames.accessed(handle) {
+            if !frames.accessed(handle) {
                 frames.bucket_remove_lru(handle);
                 num_evicted += 1;
-            } else {
-                frames.set_accessed(handle, false);
             }
             self.move_clock_handle();
         }
@@ -96,7 +98,7 @@ impl BufferPool {
 
         //Add to actual buffer pool
         let mut count = 0;
-        let failure_threshold = 10;
+        let failure_threshold = 4;
         //NOTE: if very unlucky extendible hashtable may fail to add values, happens when a bucket splits and all existing values are
         while !self.frames.try_insert(
             (path.to_string(), page_index),
@@ -125,5 +127,82 @@ impl BufferPool {
             }
         }
         self.filename_pages.remove(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_insert() {
+        let mut b = BufferPool::new(1, 3);
+        let page_data = vec![0, 0, 1, 0, 1];
+        let path = "database/0/0.sst";
+        let page_index = 0;
+        b.insert(path, page_index, &page_data);
+
+        let result = b.get(path, page_index).unwrap();
+        assert_eq!(result, page_data);
+    }
+
+    #[test]
+    fn test_eviction() {
+        let mut b = BufferPool::new(1, 3);
+        let path = "database/0/0.sst";
+        b.insert(path, 0, &vec![0, 0, 0, 0, 0]);
+        b.insert(path, 1, &vec![0, 0, 0, 0, 1]);
+        b.insert(path, 2, &vec![0, 0, 0, 1, 0]);
+        b.insert(path, 3, &vec![0, 0, 0, 1, 1]);
+
+        assert_eq!(b.len(), 3); //Make sure that we don't go over capacity
+
+        //check if new page is added and oldest is evicted
+        assert_eq!(b.get(path, 3), Some(vec![0, 0, 0, 1, 1]));
+        assert_eq!(b.get(path, 0), None);
+
+        b.insert(path, 4, &vec![0, 0, 1, 0, 0]);
+
+        //check if new page is added and oldest is evicted
+        assert_eq!(b.get(path, 4), Some(vec![0, 0, 1, 0, 0]));
+        assert_eq!(b.get(path, 1), None);
+
+        //Our oldest page should be 2 at this point, when we access it, 3 should be our oldest and get evicted on next insert
+        b.get(path, 2);
+
+        b.insert(path, 5, &vec![0, 0, 1, 0, 1]);
+
+        //check if new page is added and oldest is evicted
+        assert_eq!(b.get(path, 5), Some(vec![0, 0, 1, 0, 1]));
+        assert_eq!(b.get(path, 3), None);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut b = BufferPool::new(1, 3);
+        let path = "database/0/0.sst";
+        let path2 = "database/0/1.sst";
+        b.insert(path, 0, &vec![0, 0, 0, 0, 0]);
+        b.insert(path, 1, &vec![0, 0, 0, 0, 1]);
+        b.insert(path2, 0, &vec![0, 0, 0, 1, 0]);
+
+        //Should remove all pages with path, but nothing else
+        b.remove(path);
+        assert_eq!(b.get(path, 0), None);
+        assert_eq!(b.get(path, 1), None);
+        assert_eq!(b.get(path2, 0), Some(vec![0, 0, 0, 1, 0]));
+    }
+
+    #[test]
+    fn test_set_capacity() {
+        let mut b = BufferPool::new(1, 3);
+        let path = "database/0/0.sst";
+        b.insert(path, 0, &vec![0, 0, 0, 0, 0]);
+        b.insert(path, 1, &vec![0, 0, 0, 0, 1]);
+        b.insert(path, 2, &vec![0, 0, 0, 1, 0]);
+
+        b.set_capacity(1);
+        assert_eq!(b.get(path, 0), None);
+        assert_eq!(b.get(path, 1), None);
+        assert_eq!(b.get(path, 2), Some(vec![0, 0, 0, 1, 0]));
     }
 }
