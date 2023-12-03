@@ -19,5 +19,5 @@ winapi = { version = "0.3.9", features = ["winbase"] }
 libc = "0.2.149"
 
 [[bin]]
-name = "all"
+name = "experiments"
 path = "experiments/main.rs"
