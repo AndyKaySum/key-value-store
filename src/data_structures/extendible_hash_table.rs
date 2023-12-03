@@ -72,6 +72,30 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
             false
         }
     }
+    fn add_element_ignore(&mut self, element: (K, V)) -> bool {
+        self.set_accessed(true);
+        let mut found = false;
+        let mut found_index = 0;
+
+        for (index, existing_element) in self.elements.iter().enumerate() {
+            if existing_element.0 == element.0 {
+                found = true;
+                found_index = index;
+                break;
+            }
+        }
+
+        if found {
+            // Remove the element at the found index and push it to the back
+            if let Some(_) = self.elements.remove(found_index) {
+                self.elements.push_back((element.0, element.1));
+            }
+            return false;
+        }
+        self.elements.push_back((element.0, element.1));
+        self.size += 1;
+        true
+    }
     fn remove_element(&mut self, index: usize) -> Option<(K, V)> {
         self.set_accessed(true);
         if index < self.elements.len() {
@@ -90,7 +114,7 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
                 // let output = self.elements[index];
                 let removed = self.remove_element(index);
 
-                self.add_element(removed.unwrap());
+                self.add_element_ignore(removed.unwrap());
                 let element = self.elements.get(self.size - 1);
                 match element {
                     Some(element) => return Some(element),
@@ -108,7 +132,7 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
         &self.elements
     }
     fn is_full(&self) -> bool {
-        self.get_size() == self.capacity
+        self.get_size() >= self.capacity
     }
     fn get_size(&self) -> usize {
         self.size
@@ -241,7 +265,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         if let Some(index) = index_to_remove {
             let mut bucket = bucket.borrow_mut();
             let element = bucket.remove_element(index);
-            bucket.add_element(element.unwrap());
+            bucket.add_element_ignore(element.unwrap());
             let elements = bucket.get_elements();
             return Some(elements.iter().last().unwrap().1.clone());
         }
@@ -251,33 +275,22 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         //add bucket to directory
         self.directory[index] = bucket;
     }
-    fn rehash_bucket(&mut self, bucket: Rc<RefCell<Bucket<K, V>>>) {
-        // Clone the elements to avoid borrowing issues
-        let elements = bucket.borrow().get_elements().clone();
-        for element in elements {
-            self.try_insert(element.0, element.1);
-        }
-    }
+   
     ///Attempts to insert value into hashtable. NOTE: this can fail if bucket inserting into is full.
     /// This happens when we get unlucky on the rehash and all elements get put into one bucket.
     /// Can be avoided with a good hash function and large bucket size
-    pub fn try_insert(&mut self, key: K, value: V) -> bool {
+    pub fn put(&mut self, key: K, value: V) -> bool {
         let index = self.hash_key(&key) as usize;
         let mut added = true;
-        let mut need_to_increase_size = false;
 
         {
             // Limited scope for mutable borrow
             let mut bucket = self.get_bucket_mut(index).unwrap().borrow_mut();
-            if bucket.is_full() {
-                added = false;
-            } else {
-                added = bucket.add_element((key, value));
-                need_to_increase_size = added;
-            }
+            // }
+            added = bucket.add_element_ignore((key, value));
         } // Mutable borrow ends here
 
-        if need_to_increase_size {
+        if added {
             self.current_size += 1;
         }
 
@@ -323,9 +336,9 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 let index = self.hash_key(&element.0);
 
                 if index & high_bit == 0 {
-                    bucket1.borrow_mut().add_element(element.clone());
+                    bucket1.borrow_mut().add_element_ignore(element.clone());
                 } else {
-                    bucket2.borrow_mut().add_element(element.clone());
+                    bucket2.borrow_mut().add_element_ignore(element.clone());
                 }
             }
 
@@ -347,6 +360,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
         return added;
     }
+ 
     pub fn remove(&mut self, key: &K) -> Option<(K, V)> {
         let mut index = None;
         {
@@ -412,12 +426,12 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         self.directory.get_mut(index)
     }
     pub fn accessed(&self, index: usize) -> bool {
-        let bucket = self.get_bucket(index).unwrap();
-        return bucket.borrow().get_accessed();
+        let bucket = self.buckets[index].borrow(); 
+        return bucket.get_accessed();
     }
     pub fn set_accessed(&mut self, index: usize, accessed: bool) {
-        let bucket = self.get_bucket(index).unwrap();
-        return bucket.borrow_mut().set_accessed(accessed);
+        let mut bucket = self.buckets[index].borrow_mut();
+        return bucket.set_accessed(accessed);
     }
 }
 
@@ -443,9 +457,9 @@ mod extendible_hash_table_tests {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
 
         assert_eq!(hash_table.get_global_depth(), 2);
-        let iters = 10;
+        let iters = 1000;
         for i in 0..iters {
-            hash_table.try_insert(i, i);
+            hash_table.put(i, i);
         }
 
         println!("Global depth: {}", hash_table.get_global_depth());
@@ -474,9 +488,9 @@ mod extendible_hash_table_tests {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
 
         // Insert key-value pairs into the hash table
-        hash_table.try_insert(1, 10);
-        hash_table.try_insert(2, 20);
-        hash_table.try_insert(3, 30);
+        hash_table.put(1, 10);
+        hash_table.put(2, 20);
+        hash_table.put(3, 30);
 
         // Retrieve values from the hash table using keys
         assert_eq!(hash_table.get(&1), Some(10));
@@ -486,8 +500,8 @@ mod extendible_hash_table_tests {
         assert_eq!(hash_table.get(&4), None); // Non-existent key
 
         // Insert more key-value pairs
-        hash_table.try_insert(4, 40);
-        hash_table.try_insert(5, 50);
+        hash_table.put(4, 40);
+        hash_table.put(5, 50);
 
         // Retrieve values again
         assert_eq!(hash_table.get(&4), Some(40));
@@ -499,9 +513,9 @@ mod extendible_hash_table_tests {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
 
         // Insert key-value pairs into the hash table
-        hash_table.try_insert(1, 10);
-        hash_table.try_insert(2, 20);
-        hash_table.try_insert(3, 30);
+        hash_table.put(1, 10);
+        hash_table.put(2, 20);
+        hash_table.put(3, 30);
 
         // Delete key-value pairs
         assert_eq!(hash_table.remove(&2), Some((2, 20)));
@@ -523,7 +537,7 @@ mod extendible_hash_table_tests {
     fn test_bucket_overflow_and_resizing() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10); // small initial size to trigger resizing
         for i in 0..10 {
-            hash_table.try_insert(i, i * 100);
+            hash_table.put(i, i * 100);
         }
 
         for i in 0..10 {
@@ -537,7 +551,7 @@ mod extendible_hash_table_tests {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
         // Inserting a large number of elements
         for i in 0..1000 {
-            hash_table.try_insert(i, i);
+            hash_table.put(i, i);
         }
         // Checking a high-index element
         assert_eq!(hash_table.get(&999), Some(999));
@@ -564,8 +578,8 @@ mod extendible_hash_table_tests {
             name: "Key2".to_string(),
         };
 
-        hash_table.try_insert(key1, 100);
-        hash_table.try_insert(key2, 200);
+        hash_table.put(key1, 100);
+        hash_table.put(key2, 200);
 
         assert_eq!(
             hash_table.get(&CustomKey {
@@ -589,7 +603,7 @@ mod extendible_hash_table_tests {
         );
         assert_eq!(hash_table.get_global_depth(), 5);
         for i in 0..10 {
-            hash_table.try_insert(i, i * 100);
+            hash_table.put(i, i * 100);
         }
         let mut max_index = 0;
         for bucket in hash_table.get_directory() {
@@ -617,7 +631,7 @@ mod extendible_hash_table_tests {
     fn test_add_reorders() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
         for i in 0..10 {
-            hash_table.try_insert(i, i * 100);
+            hash_table.put(i, i * 100);
         }
         for bucket in hash_table.get_directory() {
             let borrowed_bucket = bucket.borrow_mut();
@@ -648,7 +662,7 @@ mod extendible_hash_table_tests {
     fn test_update_move_to_end() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
         for i in 0..10 {
-            hash_table.try_insert(i, i * 100);
+            hash_table.put(i, i * 100);
         }
         for bucket in hash_table.get_directory() {
             let borrowed_bucket = bucket.borrow_mut();
@@ -661,9 +675,9 @@ mod extendible_hash_table_tests {
                 borrowed_bucket.capacity
             );
         }
-        hash_table.try_insert(2, 2);
-        hash_table.try_insert(11, 11);
-        hash_table.try_insert(9, 9);
+        hash_table.put(2, 2);
+        hash_table.put(11, 11);
+        hash_table.put(9, 9);
         println!("--------");
         for bucket in hash_table.get_directory() {
             let borrowed_bucket = bucket.borrow_mut();
@@ -681,7 +695,7 @@ mod extendible_hash_table_tests {
     fn test_pop_bucket() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
         for i in 0..10 {
-            hash_table.try_insert(i, i * 100);
+            hash_table.put(i, i * 100);
         }
         for bucket in hash_table.get_directory() {
             let borrowed_bucket = bucket.borrow_mut();
@@ -717,14 +731,14 @@ mod extendible_hash_table_tests {
     fn test_table_size() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
         for i in 0..10 {
-            hash_table.try_insert(i, i * 100);
+            hash_table.put(i, i * 100);
         }
         assert_eq!(hash_table.get_current_size(), 10);
         hash_table.remove(&1);
         assert_eq!(hash_table.get_current_size(), 9);
-        hash_table.try_insert(1, 1);
+        hash_table.put(1, 1);
         assert_eq!(hash_table.get_current_size(), 10);
-        hash_table.try_insert(2, 5);
+        hash_table.put(2, 5);
         assert_eq!(hash_table.get_current_size(), 10);
     }
 
@@ -732,7 +746,7 @@ mod extendible_hash_table_tests {
     fn test_access_bit() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
         for i in 0..10 {
-            hash_table.try_insert(i, i * 100);
+            hash_table.put(i, i * 100);
         }
         hash_table.get(&1);
         assert_eq!(hash_table.accessed(1), true);
@@ -743,16 +757,13 @@ mod extendible_hash_table_tests {
     #[test]
     fn test_small_bucket_size() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(2);
-        let iters = 1000;
+        let iters = 10000;
         for i in 0..iters {
-            let mut output = false;
-            while !output {
-                output = hash_table.try_insert(i, i * 100);
-            }
+            hash_table.put(i,i); 
         }
 
         for i in 0..iters {
-            assert_eq!(hash_table.get(&i), Some(i * 100));
+            assert_eq!(hash_table.get(&i), Some(i));
         }
     }
 }

@@ -100,7 +100,7 @@ impl BufferPool {
         let mut count = 0;
         let failure_threshold = 4;
         //NOTE: if very unlucky extendible hashtable may fail to add values, happens when a bucket splits and all existing values are
-        while !self.frames.try_insert(
+        while !self.frames.put(
             (path.to_string(), page_index),
             Frame::new(page_data.to_vec()),
         ) && count < failure_threshold
