@@ -384,7 +384,7 @@ impl Database {
         };
         let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.take()) {
+            match sst.get(&self.name, level, run, key, entry_counts[level][run], buffer_pool.as_deref_mut()) {
                 Err(why) => panic!("Something went wrong trying to get key {key} at level {level}, sst {run}, reason: {why}"),
                 Ok(get_attempt_result) => {
                     if get_attempt_result.is_none() {
@@ -422,7 +422,7 @@ impl Database {
         };
         let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
-            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.take()) {
+            match sst.scan(&self.name, level, run, (key1, key2), entry_counts[level][run], buffer_pool.as_deref_mut()) {
                 Err(why) => panic!("Something went wrong trying to scan range ({key1} to {key2}) at level {level}, sst {run}, reason: {why}"),
                 Ok(scan_result) => {
                     for (key, value) in scan_result {
@@ -734,18 +734,18 @@ mod tests {
 
     fn part1_db_alterations(db: Database) -> Database {
         db.set_compaction_policy(CompactionPolicy::None)
-            .set_enable_buffer_pool(false)
             .set_sst_size_ratio(2)
             .set_sst_implementation(SstImplementation::Array)
+            .set_enable_buffer_pool(false)
             .set_buffer_pool_capacity(1)
             .set_buffer_pool_initial_size(1)
     }
 
     fn part2_db_alterations(db: Database) -> Database {
         db.set_compaction_policy(CompactionPolicy::None)
-            .set_enable_buffer_pool(true)
             .set_sst_size_ratio(2)
             .set_sst_implementation(SstImplementation::Btree)
+            .set_enable_buffer_pool(true)
             .set_buffer_pool_capacity(10)
             .set_buffer_pool_initial_size(4)
     }
