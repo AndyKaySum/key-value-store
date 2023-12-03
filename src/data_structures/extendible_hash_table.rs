@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::collections::VecDeque;
 // rand crate is required
-use std::cell::Ref;
+
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
@@ -70,11 +70,8 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
     fn remove_element(&mut self, index: usize) -> Option<(K, V)> {
         if index < self.elements.len() {
             self.size -= 1;
-            let removed = self.elements.remove(index);
-            match removed {
-                Some(element) => Some(element),
-                None => None,
-            }
+            
+            self.elements.remove(index)
         } else {
             None
         }
@@ -82,17 +79,15 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
     fn get_item(&mut self, key: K) -> Option<&(K, V)> {
         let elements = self.get_elements();
         for (index, element) in elements.iter().enumerate() {
-            if element.0 == key {
-                if index < self.elements.len() {
-                    // let output = self.elements[index];
-                    let removed = self.remove_element(index);
+            if element.0 == key && index < self.elements.len() {
+                // let output = self.elements[index];
+                let removed = self.remove_element(index);
 
-                    self.add_element(removed.unwrap());
-                    let element = self.elements.get(self.size - 1);
-                    match element {
-                        Some(element) => return Some(element),
-                        None => return None,
-                    }
+                self.add_element(removed.unwrap());
+                let element = self.elements.get(self.size - 1);
+                match element {
+                    Some(element) => return Some(element),
+                    None => return None,
                 }
             }
         }
@@ -314,7 +309,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
             let high_bit = self.get_bucket(index).unwrap().borrow().get_high_bit();
             let elements = std::mem::take(
                 &mut self
-                    .get_bucket_mut(index as usize)
+                    .get_bucket_mut(index)
                     .unwrap()
                     .borrow_mut()
                     .elements,
@@ -389,7 +384,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     fn hash_key(&self, key: &K) -> u64 {
         let mut hasher: H = H::default();
         key.hash(&mut hasher);
-        let hash_value = hasher.finish() as u64;
+        let hash_value = hasher.finish();
         hash_value & ((1 << self.global_depth) - 1)
     }
     fn get_global_depth(&self) -> usize {
@@ -526,7 +521,7 @@ mod extendible_hash_table_tests {
         }
 
         for i in 0..10 {
-            assert_eq!(hash_table.get(i), Some((i * 100)));
+            assert_eq!(hash_table.get(i), Some(i * 100));
         }
         assert!(hash_table.get_global_depth() > 1); // ensure that global depth increased due to resizing
     }
@@ -607,7 +602,7 @@ mod extendible_hash_table_tests {
             }
         }
         for i in 0..10 {
-            assert_eq!(hash_table.get(i), Some((i * 100)));
+            assert_eq!(hash_table.get(i), Some(i * 100));
         }
         assert_eq!(max_index, num_buckets);
         assert_eq!(hash_table.get_directory().len(), dir_size);
