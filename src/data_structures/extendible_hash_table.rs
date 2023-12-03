@@ -15,6 +15,7 @@ struct Bucket<K: Debug, V: Debug> {
     elements: VecDeque<(K, V)>,
     capacity: usize,
     size: usize,
+    access_bit: bool,
 }
 
 #[derive(Debug)]
@@ -35,9 +36,11 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
             size: 0,
             bucket_id,
             elements: VecDeque::with_capacity(capacity),
+            access_bit: true,
         }
     }
     fn add_element(&mut self, element: (K, V)) -> bool {
+        self.set_accessed(true);
         let mut found = false;
         let mut found_index = 0;
 
@@ -70,6 +73,7 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
         }
     }
     fn remove_element(&mut self, index: usize) -> Option<(K, V)> {
+        self.set_accessed(true);
         if index < self.elements.len() {
             self.size -= 1;
 
@@ -79,6 +83,7 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
         }
     }
     fn get_item(&mut self, key: K) -> Option<&(K, V)> {
+        self.set_accessed(true);
         let elements = self.get_elements();
         for (index, element) in elements.iter().enumerate() {
             if element.0 == key && index < self.elements.len() {
@@ -126,7 +131,14 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
             None
         }
     }
+    fn set_accessed(&mut self, accessed: bool) {
+        self.access_bit = accessed;
+    }
+    fn get_accessed(&self) -> bool {
+        self.access_bit
+    }
 }
+
 impl<K: Debug, V: Debug> Default for Bucket<K, V> {
     fn default() -> Self {
         // Provide the logic to create a default instance of Bucket<K, V>
@@ -137,6 +149,7 @@ impl<K: Debug, V: Debug> Default for Bucket<K, V> {
             elements: VecDeque::new(),
             capacity: 0,
             size: 0,
+            access_bit: true,
         }
     }
 }
@@ -207,14 +220,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     pub fn num_buckets(&self) -> usize {
         self.buckets.len()
     }
-    pub fn accessed(&self, bucket_index: usize) -> bool {
-        //TODO: return the access bool of the bucket at the index
-        todo!()
-    }
-    pub fn set_accessed(&self, bucket_index: usize, accessed: bool) {
-        //TODO: set the access bool of the bucket at the index
-        todo!()
-    }
     pub fn get(&self, key: &K) -> Option<V> {
         let bucket_index = self.hash_key(&key) as usize;
         let bucket = self.get_bucket(bucket_index).unwrap();
@@ -243,35 +248,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
         None
     }
-
-    fn get_next(&self, key: K) -> Option<V> {
-        let mut index = self.hash_key(&key) as usize;
-        let bucket = self.get_bucket(index).unwrap();
-        let bucket = bucket.borrow_mut();
-        let elements = bucket.get_elements();
-        for (i, element) in elements.iter().enumerate() {
-            if element.0 == key {
-                if i == elements.len() - 1 {
-                    if (index + 1) >= self.directory.len() - 1 {
-                        return None;
-                    }
-                    let mut next_bucket = &self.directory[index + 1];
-                    let mut next_elements_len = next_bucket.borrow().get_elements().len();
-                    while next_elements_len == 0 {
-                        if index + 1 >= self.directory.len() - 1 {
-                            return None;
-                        }
-                        next_bucket = &self.directory[index + 1];
-                        next_elements_len = next_bucket.borrow_mut().get_elements().len();
-                        index += 1;
-                    }
-                    return Some(next_bucket.borrow_mut().get_elements()[0].1.clone());
-                }
-                return Some(elements[i + 1].1.clone());
-            }
-        }
-        None
-    }
     fn add_to_directory(&mut self, bucket: Rc<RefCell<Bucket<K, V>>>, index: usize) {
         //add bucket to directory
         self.directory[index] = bucket;
@@ -284,6 +260,8 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
     }
     pub fn try_insert(&mut self, key: K, value: V) -> bool {
+        //fails if bucket inserting into is full. This happens when we get unlucky on the rehash and all elements get put into one bucket.
+        //can be avoided with a good hash function and large bucket size
         let index = self.hash_key(&key) as usize;
 
         let added = self
@@ -326,6 +304,8 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 local_depth + 1,
                 self.num_buckets + 2,
             )));
+            self.buckets.push(Rc::clone(&bucket1));
+            self.buckets.push(Rc::clone(&bucket2));
             let high_bit = self.get_bucket(index).unwrap().borrow().get_high_bit();
             let elements =
                 std::mem::take(&mut self.get_bucket_mut(index).unwrap().borrow_mut().elements);
@@ -385,9 +365,9 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
         None
     }
-    pub fn pop_bucket(&mut self, dir_index: usize) -> Option<(K, V)> {
-        let bucket = self.get_bucket_mut(dir_index).unwrap();
-        let popped = bucket.borrow_mut().pop_top();
+    pub fn pop_bucket(&mut self, bucket_index: usize) -> Option<(K, V)> {
+        let mut bucket = self.buckets[bucket_index].borrow_mut();
+        let popped = bucket.pop_top();
         match popped {
             Some(element) => {
                 self.current_size -= 1;
@@ -420,6 +400,14 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     fn get_bucket_mut(&mut self, index: usize) -> Option<&mut Rc<RefCell<Bucket<K, V>>>> {
         self.directory.get_mut(index)
     }
+    pub fn accessed(&self, index: usize) -> bool {
+        let bucket = self.get_bucket(index).unwrap();
+        return bucket.borrow().get_accessed();
+    }
+    pub fn set_accessed(&mut self, index: usize, accessed: bool) {
+        let bucket = self.get_bucket(index).unwrap();
+        return bucket.borrow_mut().set_accessed(accessed);
+    }
 }
 
 fn truncate_binary(num: u64, length: usize) -> u64 {
@@ -444,15 +432,10 @@ mod extendible_hash_table_tests {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
 
         assert_eq!(hash_table.get_global_depth(), 2);
-        // let mut rng = rand::thread_rng();
         let iters = 10;
-        // panic!("Herio");
         for i in 0..iters {
-            // let random_key = rng.gen::<i32>(); // Generates a random u32
             hash_table.try_insert(i, i);
-            // println!("Index of {}: {}", i, hash_table.hash_key(&i));
         }
-        // hash_table.put(69, 1000);
 
         println!("Global depth: {}", hash_table.get_global_depth());
         for i in 0..iters {
@@ -475,9 +458,6 @@ mod extendible_hash_table_tests {
             );
         }
         println!("Global depth: {}", hash_table.get_global_depth());
-        // println!("Bucket elements: {:?} local depeth: {}", hash_table.get_bucket(25).unwrap().borrow().get_elements(), hash_table.get_bucket(25).unwrap().borrow().get_local_depth());
-        // println!("{}", hash_table.get(69).unwrap());
-        println!("get next: {:?}", hash_table.get_next(8));
     }
     fn test_put_and_get() {
         let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
@@ -704,6 +684,8 @@ mod extendible_hash_table_tests {
             );
         }
         hash_table.get(&1);
+        let popped = hash_table.pop_bucket(0);
+        assert_eq!(popped.unwrap(), (0, 0));
         let popped = hash_table.pop_bucket(1);
         assert_eq!(popped.unwrap(), (2, 200));
         println!("--------");
@@ -733,5 +715,17 @@ mod extendible_hash_table_tests {
         assert_eq!(hash_table.get_current_size(), 10);
         hash_table.try_insert(2, 5);
         assert_eq!(hash_table.get_current_size(), 10);
+    }
+
+    #[test]
+    fn test_access_bit() {
+        let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
+        for i in 0..10 {
+            hash_table.try_insert(i, i * 100);
+        }
+        hash_table.get(&1);
+        assert_eq!(hash_table.accessed(1), true);
+        hash_table.set_accessed(1, false);
+        assert_eq!(hash_table.accessed(1), false);
     }
 }
