@@ -149,6 +149,10 @@ impl Database {
         self.config.buffer_pool_capacity = buffer_pool_capacity;
         self
     }
+    pub fn set_buffer_pool_capacity_mb(self, buffer_pool_capacity_mb: Size) -> Self {
+        let num_pages = buffer_pool_capacity_mb * 2_usize.pow(20) / system_info::page_size();
+        self.set_buffer_pool_capacity(num_pages)
+    }
     pub fn buffer_pool_initial_size(&self) -> Size {
         self.config.buffer_pool_initial_size
     }
@@ -163,6 +167,10 @@ impl Database {
         }
         self.config.buffer_pool_initial_size = buffer_pool_initial_size;
         self
+    }
+    pub fn set_buffer_pool_initial_size_mb(self, buffer_pool_initial_size_mb: Size) -> Self {
+        let num_pages = buffer_pool_initial_size_mb * 2_usize.pow(20) / system_info::page_size();
+        self.set_buffer_pool_initial_size(num_pages)
     }
     pub fn compaction_policy(&self) -> CompactionPolicy {
         self.config.compaction_policy
