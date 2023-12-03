@@ -227,6 +227,28 @@ mod tests {
     }
 
     #[test]
+    fn test_rename() {
+        let mut b = BufferPool::new(1, 3);
+        let path = "database/0/0.sst";
+        let path2 = "database/0/1.sst";
+        b.insert(path, 0, &[0, 0, 0, 0, 0]);
+        b.insert(path, 1, &[0, 0, 0, 0, 1]);
+        b.insert(path2, 0, &[0, 0, 0, 1, 0]);
+
+        let new_path = "database/12/0.sst";
+
+        //Should remove all pages with path, but nothing else
+        b.rename(path, new_path);
+        assert_eq!(b.get(path, 0), None);
+        assert_eq!(b.get(path, 1), None);
+        assert_eq!(b.get(new_path, 0), Some(vec![0, 0, 0, 0, 0]));
+        assert_eq!(b.get(new_path, 1), Some(vec![0, 0, 0, 0, 1]));
+        assert_eq!(b.get(path2, 0), Some(vec![0, 0, 0, 1, 0]));
+
+        assert_eq!(b.len(), 3)
+    }
+
+    #[test]
     fn test_set_capacity() {
         let mut b = BufferPool::new(1, 3);
         let path = "database/0/0.sst";
