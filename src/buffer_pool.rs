@@ -1,4 +1,4 @@
-use std::collections::{HashMap, LinkedList};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     data_structures::extendible_hash_table::ExtendibleHashTable,
@@ -28,9 +28,9 @@ impl Frame {
 pub struct BufferPool {
     //NOTE: all vectors should be at most system_info::page_size() number of bytes
     frames: ExtendibleHashTable<PageKey, Frame, FastHasher>, //TODO: step 2.1 replace with extendible hashing data structure
-    filename_pages: HashMap<PathString, LinkedList<Page>>, //keeps track of the pages we have in the bufferpool for a given filename, NOTE: we need this for when files are deleted or replaced and the items in the buffer pool are no longer valid
+    filename_pages: HashMap<PathString, HashSet<Page>>, //keeps track of the pages we have in the bufferpool for a given filename, NOTE: we need this for when files are deleted or replaced and the items in the buffer pool are no longer valid
     capacity: Size,
-    clock_handle: usize, //Option<std::collections::hash_map::IterMut<'a, PageKey, Frame>>
+    clock_handle: usize, //index into buckets array in our extendible hashtable, used for clock+LRU hybrid
 }
 
 #[allow(dead_code, unused)] //TODO: remove when ready
@@ -79,6 +79,7 @@ impl BufferPool {
             self.evict(self.frames.len() - self.capacity + 1); //evict enough, so that we have space for 1 insertion
         }
 
+        //Add to actual buffer pool
         let mut count = 0;
         let failure_threshold = 10;
         //NOTE: if very unlucky extendible hashtable may fail to add values, happens when a bucket splits and all existing values are
@@ -90,18 +91,18 @@ impl BufferPool {
             count += 0;
         }
 
+        //Add page index to our metadata hashtable
         match self.filename_pages.get_mut(path) {
-            Some(page_indexes) => page_indexes.push_back(page_index),
+            Some(page_indexes) => {page_indexes.insert(page_index);},
             None => {
-                let page_indexes = LinkedList::from([page_index]);
+                let page_indexes = HashSet::from([page_index]);
                 self.filename_pages.insert(path.to_string(), page_indexes);
             }
         };
     }
 
     pub fn remove(&mut self, path: &str) {
-        let page_indexes_option = self.filename_pages.get(path);
-        if let Some(page_indexes) = page_indexes_option {
+        if let Some(page_indexes) = self.filename_pages.get(path) {
             for page in page_indexes {
                 self.frames.remove(&(path.to_string(), *page));
             }
