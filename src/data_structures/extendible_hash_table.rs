@@ -65,10 +65,6 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
             self.size += 1;
             true
         } else {
-            println!(
-                "Failed to add element: {:?} bucket {} curr bucket {:?}",
-                element, self.bucket_id, self.elements
-            );
             false
         }
     }
@@ -111,9 +107,12 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
         for (index, element) in elements.iter().enumerate() {
             if element.0 == key && index < self.elements.len() {
                 // let output = self.elements[index];
-                let removed = self.remove_element(index);
+                let removed = match self.remove_element(index) {
+                    Some(e) => e,
+                    None => return None,
+                };
 
-                self.add_element_ignore(removed.unwrap());
+                self.add_element_ignore(removed);
                 let element = self.elements.get(self.size - 1);
                 match element {
                     Some(element) => return Some(element),
@@ -243,11 +242,15 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         self.buckets.len()
     }
     pub fn get(&self, key: &K) -> Option<V> {
-        let bucket_index = self.hash_key(key) as usize;
-        let bucket = self.get_bucket(bucket_index).unwrap();
-
-        // Bind the borrow to a variable
+        let bucket_index = self.hash_key(&key) as usize;
+        let bucket = match self.get_bucket(bucket_index) {
+            Some(bucket) => bucket,
+            None => {
+                return None;
+            }
+        };
         let bucket_ref = bucket.borrow();
+
         let elements = bucket_ref.get_elements();
 
         let mut index_to_remove = None;
@@ -263,10 +266,17 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
 
         if let Some(index) = index_to_remove {
             let mut bucket = bucket.borrow_mut();
-            let element = bucket.remove_element(index);
-            bucket.add_element_ignore(element.unwrap());
+            let element = match bucket.remove_element(index) {
+                Some(e) => e,
+                None => return None,
+            };
+            bucket.add_element_ignore(element);
             let elements = bucket.get_elements();
-            return Some(elements.iter().last().unwrap().1.clone());
+            let last_element = match elements.iter().last() {
+                Some(e) => e.1.clone(),
+                None => return None,
+            };
+            return Some(last_element);
         }
         None
     }
@@ -284,7 +294,13 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
 
         {
             // Limited scope for mutable borrow
-            let mut bucket = self.get_bucket_mut(index).unwrap().borrow_mut();
+            let mut bucket = match self.get_bucket_mut(index) {
+                Some(bucket) => bucket.borrow_mut(),
+                None => {
+                    return false;
+                }
+            };
+
             // }
             added = bucket.add_element_ignore((key, value));
         } // Mutable borrow ends here
@@ -294,7 +310,12 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
 
         let (local_depth, is_full) = {
-            let bucket = self.get_bucket(index).unwrap().borrow();
+            let bucket = match self.get_bucket(index) {
+                Some(bucket) => bucket.borrow(),
+                None => {
+                    return false;
+                }
+            };
             (bucket.get_local_depth(), bucket.is_full())
         };
 
@@ -315,25 +336,40 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 }
                 self.directory = new_directory;
             }
+
+            let bucket = match self.get_bucket(index) {
+                Some(bucket) => bucket.borrow(),
+                None => {
+                    return false;
+                }
+            };
             let bucket1 = Rc::new(RefCell::new(Bucket::new(
-                self.get_bucket(index).unwrap().borrow().capacity,
+                bucket.capacity,
                 local_depth + 1,
                 self.num_buckets + 1,
             )));
             let bucket2 = Rc::new(RefCell::new(Bucket::new(
-                self.get_bucket(index).unwrap().borrow().capacity,
+                bucket.capacity,
                 local_depth + 1,
                 self.num_buckets + 2,
             )));
+            drop(bucket);
             self.buckets.push(Rc::clone(&bucket1));
             self.buckets.push(Rc::clone(&bucket2));
-            let high_bit = self.get_bucket(index).unwrap().borrow().get_high_bit();
-            let elements =
-                std::mem::take(&mut self.get_bucket_mut(index).unwrap().borrow_mut().elements);
+            let mut bucket = match self.get_bucket_mut(index) {
+                Some(bucket) => bucket.borrow_mut(),
+                None => {
+                    return false;
+                }
+            };
 
+            let high_bit = bucket.get_high_bit();
+            let elements = std::mem::take(&mut bucket.elements);
+            drop(bucket);
+
+            println!("Elements len: {}", elements.len());
             for element in elements {
                 let index = self.hash_key(&element.0);
-
                 if index & high_bit == 0 {
                     bucket1.borrow_mut().add_element_ignore(element);
                 } else {
@@ -355,7 +391,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 bucket1.borrow().get_elements().len(),
                 bucket2.borrow().get_elements().len()
             );
-            // assert!(!self.get_bucket(index).unwrap().borrow().is_full());
         }
         added
     }
@@ -363,10 +398,12 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     pub fn remove(&mut self, key: &K) -> Option<(K, V)> {
         let mut index = None;
         {
-            let bucket = self
-                .get_bucket(self.hash_key(key) as usize)
-                .unwrap()
-                .borrow();
+            let bucket = match self.get_bucket(self.hash_key(key) as usize) {
+                Some(bucket) => bucket.borrow(),
+                None => {
+                    return None;
+                }
+            };
             let elements = bucket.get_elements();
             for (i, element) in elements.iter().enumerate() {
                 if element.0 == *key {
@@ -377,11 +414,13 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
         if let Some(index) = index {
             self.current_size -= 1;
-            return self
-                .get_bucket_mut(self.hash_key(key) as usize)
-                .unwrap()
-                .borrow_mut()
-                .remove_element(index);
+            let mut bucket = match self.get_bucket_mut(self.hash_key(key) as usize) {
+                Some(bucket) => bucket.borrow_mut(),
+                None => {
+                    return None;
+                }
+            };
+            return bucket.remove_element(index);
         }
         None
     }
@@ -426,7 +465,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     }
     pub fn accessed(&self, index: usize) -> bool {
         let bucket = self.buckets[index].borrow();
-        bucket.get_accessed()
+        return bucket.get_accessed();
     }
     pub fn set_accessed(&mut self, index: usize, accessed: bool) {
         let mut bucket = self.buckets[index].borrow_mut();
@@ -763,6 +802,19 @@ mod extendible_hash_table_tests {
 
         for i in 0..iters {
             assert_eq!(hash_table.get(&i), Some(i));
+        }
+    }
+    #[test]
+    fn test_insert_large_values() {
+        let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(10);
+        let iters = 10000;
+
+        for i in 0..iters {
+            hash_table.put(i, 10000000);
+        }
+
+        for i in 0..iters {
+            assert_eq!(hash_table.get(&i).unwrap(), 10000000);
         }
     }
 }
