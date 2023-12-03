@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 use std::collections::VecDeque;
-// rand crate is required
-
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
@@ -191,7 +189,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 i + 1,
             ))));
         }
-        // let mut directory = Vec::with_capacity(dir_size);
         let directory: Vec<Rc<RefCell<Bucket<K, V>>>> = (0..dir_size)
             .map(|i| Rc::clone(&buckets[i % num_buckets]))
             .collect();
@@ -300,8 +297,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                     return false;
                 }
             };
-
-            // }
             added = bucket.add_element_ignore((key, value));
         } // Mutable borrow ends here
 
@@ -386,11 +381,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                     self.add_to_directory(bucket2.clone(), i as usize);
                 }
             }
-            println!(
-                "Len bucket1: {} len bucket2: {}",
-                bucket1.borrow().get_elements().len(),
-                bucket2.borrow().get_elements().len()
-            );
         }
         added
     }
