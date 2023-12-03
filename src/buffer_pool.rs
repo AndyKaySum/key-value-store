@@ -13,6 +13,7 @@ type PageKey = (PathString, Page);
 
 #[derive(Debug, Clone)] //TODO: remove Clone
 struct Frame {
+    //NOTE: all vectors should be at most system_info::page_size() number of bytes
     data: Vec<u8>,
 }
 
@@ -26,8 +27,7 @@ impl Frame {
 #[allow(dead_code, unused)] //TODO: remove when ready
 #[derive(Debug)]
 pub struct BufferPool {
-    //NOTE: all vectors should be at most system_info::page_size() number of bytes
-    frames: ExtendibleHashTable<PageKey, Frame, FastHasher>, //TODO: step 2.1 replace with extendible hashing data structure
+    frames: ExtendibleHashTable<PageKey, Frame, FastHasher>,
     filename_pages: HashMap<PathString, HashSet<Page>>, //keeps track of the pages we have in the bufferpool for a given filename, NOTE: we need this for when files are deleted or replaced and the items in the buffer pool are no longer valid
     capacity: Size,
     clock_handle: usize, //index into buckets array in our extendible hashtable, used for clock+LRU hybrid
@@ -41,6 +41,21 @@ impl BufferPool {
             filename_pages: HashMap::new(),
             capacity,
             clock_handle: 0, //TODO: change
+        }
+    }
+
+    ///Number of elements in the buffer pool
+    pub fn len(&self) -> Size {
+        self.frames.len()
+    }
+
+    pub fn capacity(&self) -> Size {
+        self.capacity
+    }
+    pub fn set_capacity(&mut self, capacity: Size) {
+        self.capacity = capacity;
+        if self.len() > capacity {
+            self.evict(self.len() - capacity);
         }
     }
 
@@ -65,7 +80,7 @@ impl BufferPool {
             let handle = self.clock_handle;
             let frames = &mut self.frames;
             if frames.accessed(handle) {
-                frames.pop_bucket(handle);
+                frames.bucket_remove_lru(handle);
                 num_evicted += 1;
             } else {
                 frames.set_accessed(handle, false);
@@ -75,8 +90,8 @@ impl BufferPool {
     }
 
     pub fn insert(&mut self, path: &str, page_index: Page, page_data: &[u8]) {
-        if self.frames.len() >= self.capacity {
-            self.evict(self.frames.len() - self.capacity + 1); //evict enough, so that we have space for 1 insertion
+        if self.len() >= self.capacity {
+            self.evict(self.len() - self.capacity + 1); //evict enough, so that we have space for 1 insertion
         }
 
         //Add to actual buffer pool

@@ -123,13 +123,12 @@ impl<K: Hash + Eq + Debug, V: Debug> Bucket<K, V> {
     fn get_high_bit(&self) -> u64 {
         1 << self.local_depth
     }
-    fn pop_top(&mut self) -> Option<(K, V)> {
-        if self.size > 0 {
+    fn pop_front(&mut self) -> Option<(K, V)> {
+        let front = self.elements.pop_front();
+        if front.is_some() {
             self.size -= 1;
-            self.elements.pop_front()
-        } else {
-            None
         }
+        front
     }
     fn set_accessed(&mut self, accessed: bool) {
         self.access_bit = accessed;
@@ -366,9 +365,9 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
         None
     }
-    pub fn pop_bucket(&mut self, bucket_index: usize) -> Option<(K, V)> {
+    fn bucket_pop_front(&mut self, bucket_index: usize) -> Option<(K, V)> {
         let mut bucket = self.buckets[bucket_index].borrow_mut();
-        let popped = bucket.pop_top();
+        let popped = bucket.pop_front();
         match popped {
             Some(element) => {
                 self.current_size -= 1;
@@ -376,6 +375,10 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
             }
             None => None,
         }
+    }
+    ///Removes the least recently used element in the the bucket at index <bucket_index>
+    pub fn bucket_remove_lru(&mut self, bucket_index: usize) {
+        self.bucket_pop_front(bucket_index);//NOTE: elements are moved to the back on access, so front is least recently accessed
     }
     fn hash_key(&self, key: &K) -> u64 {
         let mut hasher: H = H::default();
@@ -685,9 +688,9 @@ mod extendible_hash_table_tests {
             );
         }
         hash_table.get(&1);
-        let popped = hash_table.pop_bucket(0);
+        let popped = hash_table.bucket_pop_front(0);
         assert_eq!(popped.unwrap(), (0, 0));
-        let popped = hash_table.pop_bucket(1);
+        let popped = hash_table.bucket_pop_front(1);
         assert_eq!(popped.unwrap(), (2, 200));
         println!("--------");
         for bucket in hash_table.get_directory() {
