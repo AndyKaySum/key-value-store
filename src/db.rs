@@ -141,7 +141,10 @@ impl Database {
         self.config.buffer_pool_capacity
     }
     pub fn set_buffer_pool_capacity(mut self, buffer_pool_capacity: Size) -> Self {
-        assert!(buffer_pool_capacity > 0, "Buffer pool capacity must be over zero");
+        assert!(
+            buffer_pool_capacity > 0,
+            "Buffer pool capacity must be over zero"
+        );
         self.buffer_pool.set_capacity(buffer_pool_capacity);
         self.config.buffer_pool_capacity = buffer_pool_capacity;
         self
@@ -150,9 +153,13 @@ impl Database {
         self.config.buffer_pool_initial_size
     }
     pub fn set_buffer_pool_initial_size(mut self, buffer_pool_initial_size: Size) -> Self {
-        assert!(buffer_pool_initial_size > 0, "Buffer pool initial size must be over zero");
+        assert!(
+            buffer_pool_initial_size > 0,
+            "Buffer pool initial size must be over zero"
+        );
         if buffer_pool_initial_size != self.buffer_pool_initial_size() {
-            self.buffer_pool = BufferPool::new(buffer_pool_initial_size, self.buffer_pool_capacity())
+            self.buffer_pool =
+                BufferPool::new(buffer_pool_initial_size, self.buffer_pool_capacity())
         }
         self.config.buffer_pool_initial_size = buffer_pool_initial_size;
         self

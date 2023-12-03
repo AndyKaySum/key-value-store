@@ -108,7 +108,9 @@ impl BufferPool {
 
         //Add page index to our metadata hashtable
         match self.filename_pages.get_mut(path) {
-            Some(page_indexes) => {page_indexes.insert(page_index);},
+            Some(page_indexes) => {
+                page_indexes.insert(page_index);
+            }
             None => {
                 let page_indexes = HashSet::from([page_index]);
                 self.filename_pages.insert(path.to_string(), page_indexes);

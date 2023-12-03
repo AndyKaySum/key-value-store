@@ -263,20 +263,29 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     /// Can be avoided with a good hash function and large bucket size
     pub fn try_insert(&mut self, key: K, value: V) -> bool {
         let index = self.hash_key(&key) as usize;
+        let mut added = true;
+        let mut need_to_increase_size = false;
 
-        let added = self
-            .get_bucket_mut(index)
-            .unwrap()
-            .borrow_mut()
-            .add_element((key, value));
-        if added {
+        {
+            // Limited scope for mutable borrow
+            let mut bucket = self.get_bucket_mut(index).unwrap().borrow_mut();
+            if bucket.is_full() {
+                added = false;
+            } else {
+                added = bucket.add_element((key, value));
+                need_to_increase_size = added;
+            }
+        } // Mutable borrow ends here
+
+        if need_to_increase_size {
             self.current_size += 1;
         }
+
         let (local_depth, is_full) = {
             let bucket = self.get_bucket(index).unwrap().borrow();
-            assert!(bucket.get_bucket_id() != 20069);
             (bucket.get_local_depth(), bucket.is_full())
         };
+
         if is_full {
             let global_depth = self.get_global_depth();
             if local_depth == global_depth {
@@ -314,7 +323,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 let index = self.hash_key(&element.0);
 
                 if index & high_bit == 0 {
-                    //not sure if this a zero check
                     bucket1.borrow_mut().add_element(element.clone());
                 } else {
                     bucket2.borrow_mut().add_element(element.clone());
@@ -325,7 +333,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 .step_by(high_bit as usize)
             {
                 if i & high_bit == 0 {
-                    //not sure if this a zero check
                     self.add_to_directory(bucket1.clone(), i as usize);
                 } else {
                     self.add_to_directory(bucket2.clone(), i as usize);
@@ -336,9 +343,9 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
                 bucket1.borrow().get_elements().len(),
                 bucket2.borrow().get_elements().len()
             );
-            assert!(!self.get_bucket(index).unwrap().borrow().is_full());
+            // assert!(!self.get_bucket(index).unwrap().borrow().is_full());
         }
-        true
+        return added;
     }
     pub fn remove(&mut self, key: &K) -> Option<(K, V)> {
         let mut index = None;
@@ -378,7 +385,7 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
     }
     ///Removes the least recently used element in the the bucket at index <bucket_index>
     pub fn bucket_remove_lru(&mut self, bucket_index: usize) {
-        self.bucket_pop_front(bucket_index);//NOTE: elements are moved to the back on access, so front is least recently accessed
+        self.bucket_pop_front(bucket_index); //NOTE: elements are moved to the back on access, so front is least recently accessed
     }
     fn hash_key(&self, key: &K) -> u64 {
         let mut hasher: H = H::default();
@@ -731,5 +738,21 @@ mod extendible_hash_table_tests {
         assert_eq!(hash_table.accessed(1), true);
         hash_table.set_accessed(1, false);
         assert_eq!(hash_table.accessed(1), false);
+    }
+
+    #[test]
+    fn test_small_bucket_size() {
+        let mut hash_table = ExtendibleHashTable::<i32, i32, DefaultHasher>::new(2);
+        let iters = 1000;
+        for i in 0..iters {
+            let mut output = false;
+            while !output {
+                output = hash_table.try_insert(i, i * 100);
+            }
+        }
+
+        for i in 0..iters {
+            assert_eq!(hash_table.get(&i), Some(i * 100));
+        }
     }
 }
