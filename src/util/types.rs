@@ -14,7 +14,6 @@ pub type Node = usize; //Node index in a B-tree
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum CompactionPolicy {
     None,
-    Basic,
     Leveled,
     Tiered,
     Dovstoevsky,

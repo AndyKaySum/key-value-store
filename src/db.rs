@@ -453,7 +453,7 @@ impl Database {
 
         match self.config.compaction_policy {
             CompactionPolicy::None => {}
-            CompactionPolicy::Leveled | CompactionPolicy::Basic => leveled_compact(self),
+            CompactionPolicy::Leveled => leveled_compact(self),
             CompactionPolicy::Tiered => tiered_compact(self),
             CompactionPolicy::Dovstoevsky => {
                 if is_last_level {
