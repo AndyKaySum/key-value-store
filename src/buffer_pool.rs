@@ -11,20 +11,18 @@ use crate::{
 type PathString = String;
 type PageKey = (PathString, Page);
 
-#[derive(Debug, Clone)] //TODO: remove Clone
+#[derive(Debug, Clone)]
 struct Frame {
     //NOTE: all vectors should be at most system_info::page_size() number of bytes
     bytes: Vec<u8>,
 }
 
-#[allow(dead_code, unused)] //TODO: remove when ready
 impl Frame {
     fn new(bytes: Vec<u8>) -> Self {
         Self { bytes }
     }
 }
 
-#[allow(dead_code, unused)] //TODO: remove when ready
 #[derive(Debug)]
 pub struct BufferPool {
     frames: ExtendibleHashTable<PageKey, Frame, FastHasher>,
@@ -33,7 +31,7 @@ pub struct BufferPool {
     clock_handle: usize, //index into buckets array in our extendible hashtable, used for clock+LRU hybrid
 }
 
-#[allow(dead_code, unused)] //TODO: remove when ready
+#[allow(dead_code)] //TODO: remove when ready
 impl BufferPool {
     pub fn new(initial_size: Size, capacity: Size) -> Self {
         Self {
@@ -78,13 +76,13 @@ impl BufferPool {
     }
 
     fn evict(&mut self, num_to_evict: Size) {
-        //TODO: evict until we have space for one entry (one less than capacity)
         let mut num_evicted = 0;
         while num_evicted < num_to_evict {
             let handle = self.clock_handle;
             let frames = &mut self.frames;
-            if !frames.accessed(handle) {
-                frames.bucket_remove_lru(handle);
+
+            //if this bucket has not been accessed and we can remove its least recently used page, increment counter
+            if !frames.accessed(handle) && frames.bucket_remove_lru(handle) {
                 num_evicted += 1;
             }
             self.move_clock_handle();
@@ -136,8 +134,28 @@ mod tests {
         let page_index = 0;
         b.insert(path, page_index, &page_data);
 
-        let result = b.get(path, page_index).unwrap();
-        assert_eq!(result, page_data);
+        let result = b.get(path, page_index);
+        assert_eq!(result, Some(page_data));
+    }
+
+    #[test]
+    fn test_insert_replacement() {
+        let mut b = BufferPool::new(1, 3);
+        let page_data = vec![0, 0, 1, 0, 1];
+        let path = "database/0/0.sst";
+        let page_index = 0;
+        b.insert(path, page_index, &page_data);
+
+        let result = b.get(path, page_index);
+        assert_eq!(result, Some(page_data));
+
+        let replacement_data = vec![1, 1, 1, 1, 1];
+        b.insert(path, page_index, &replacement_data);
+
+        assert_eq!(b.len(), 1); //replacement should not change length
+
+        let result = b.get(path, page_index);
+        assert_eq!(result, Some(replacement_data));
     }
 
     #[test]
@@ -194,11 +212,19 @@ mod tests {
         b.insert(path, 0, &[0, 0, 0, 0, 0]);
         b.insert(path, 1, &[0, 0, 0, 0, 1]);
         b.insert(path, 2, &[0, 0, 0, 1, 0]);
+        b.insert(path, 3, &[0, 0, 0, 1, 1]);
+
+        assert_eq!(b.len(), 3);
+        assert!(b.len() <= b.capacity());
 
         b.set_capacity(1);
         assert_eq!(b.get(path, 0), None);
         assert_eq!(b.get(path, 1), None);
-        assert_eq!(b.get(path, 2), Some(vec![0, 0, 0, 1, 0]));
+        assert_eq!(b.get(path, 2), None);
+        assert_eq!(b.get(path, 3), Some(vec![0, 0, 0, 1, 1]));
+        assert_eq!(b.len(), 1);
+
+        assert!(b.len() <= b.capacity());
     }
 
     #[test]
@@ -213,6 +239,13 @@ mod tests {
 
         for i in 0..10000 {
             b.insert(path, i, &page(i));
+            assert!(
+                b.len() <= b.capacity(),
+                "Went over capacity at insertion {}",
+                i
+            );
         }
+
+        assert!(b.len() <= b.capacity());
     }
 }

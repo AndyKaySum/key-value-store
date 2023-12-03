@@ -267,9 +267,6 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         self.directory[index] = bucket;
     }
 
-    ///Attempts to insert value into hashtable. NOTE: this can fail if bucket inserting into is full.
-    /// This happens when we get unlucky on the rehash and all elements get put into one bucket.
-    /// Can be avoided with a good hash function and large bucket size
     pub fn put(&mut self, key: K, value: V) -> bool {
         let index = self.hash_key(&key) as usize;
         #[allow(unused_assignments)]
@@ -410,9 +407,10 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
             None => None,
         }
     }
-    ///Removes the least recently used element in the the bucket at index <bucket_index>
-    pub fn bucket_remove_lru(&mut self, bucket_index: usize) {
-        self.bucket_pop_front(bucket_index); //NOTE: elements are moved to the back on access, so front is least recently accessed
+    ///Removes the least recently used element in the the bucket at index <bucket_index>.
+    /// Returns true iff successfully removed an element
+    pub fn bucket_remove_lru(&mut self, bucket_index: usize) -> bool {
+        self.bucket_pop_front(bucket_index).is_some() //NOTE: elements are moved to the back on access, so front is least recently accessed
     }
     fn hash_key(&self, key: &K) -> u64 {
         let mut hasher: H = H::default();
