@@ -5,14 +5,23 @@ pub type Value = i64;
 pub type Entry = (Key, Value);
 pub type Size = usize; //for lengths and capacities
 
-pub type Level = usize; //LSM level number
-pub type Run = usize; //Run number within LSM level
-pub type LevelAddress<'a> = (&'a str, Level);
-pub type RunAddress<'a> = (&'a str, Level, Run);
-pub type Page = usize; //Page index (assumes consistent page sizes)
+///LSM level number
+pub type Level = usize;
+///Run number within LSM level
+pub type Run = usize;
+///Name of database
+pub type DatabaseName = str;
+///Used to identify an LSM level within a specific database
+pub type LevelAddress<'a> = (&'a DatabaseName, Level);
+///Used to identify an SST run within a specific database
+pub type RunAddress<'a> = (&'a DatabaseName, Level, Run);
+///Page index (assumes consistent page sizes)
+pub type Page = usize;
 
-pub type Depth = usize; //Depth in a B-tree
-pub type Node = usize; //Node index in a B-tree
+///Depth in a B-tree
+pub type Depth = usize;
+///Node index in a B-tree
+pub type Node = usize;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum CompactionPolicy {
