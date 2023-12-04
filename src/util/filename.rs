@@ -1,4 +1,4 @@
-use crate::util::types::{Level, Run};
+use crate::util::types::{Level, LevelAddress, Run, RunAddress};
 
 const FILE_SEPARATOR: char = '/';
 pub const SST_FILE_EXTENSION: &str = "sst";
@@ -25,20 +25,24 @@ pub fn sst_compaction() -> String {
     "compaction.bin".to_string()
 }
 
-pub fn lsm_level_directory(db_name: &str, level: Level) -> String {
+pub fn lsm_level_directory(level_address: &LevelAddress) -> String {
+    let (db_name, level) = level_address;
     format!("{db_name}{0}{level}{0}", FILE_SEPARATOR)
 }
-pub fn sst_path(db_name: &str, level: Level, run: Run) -> String {
-    format!("{db_name}{0}{level}{0}{1}", FILE_SEPARATOR, sst(run))
+pub fn sst_path(run_address: &RunAddress) -> String {
+    let (db_name, level, run) = run_address;
+    format!("{db_name}{0}{level}{0}{1}", FILE_SEPARATOR, sst(*run))
 }
-pub fn sst_btree_path(db_name: &str, level: Level, run: Run) -> String {
-    format!("{db_name}{0}{level}{0}{1}", FILE_SEPARATOR, sst_btree(run))
+pub fn sst_btree_path(run_address: &RunAddress) -> String {
+    let (db_name, level, run) = run_address;
+    format!("{db_name}{0}{level}{0}{1}", FILE_SEPARATOR, sst_btree(*run))
 }
-pub fn bloom_filter_path(db_name: &str, level: Level, run: Run) -> String {
+pub fn bloom_filter_path(run_address: &RunAddress) -> String {
+    let (db_name, level, run) = run_address;
     format!(
         "{db_name}{0}{level}{0}{1}",
         FILE_SEPARATOR,
-        bloom_filter(run)
+        bloom_filter(*run)
     )
 }
 pub fn sst_compaction_path(db_name: &str, level: Level) -> String {

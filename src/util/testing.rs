@@ -2,12 +2,12 @@ use crate::db::Database;
 
 use super::{
     filename,
-    types::{CompactionPolicy, Level, SstImplementation, SstSearchAlgorithm},
+    types::{CompactionPolicy, LevelAddress, SstImplementation, SstSearchAlgorithm},
 };
 
 #[allow(dead_code)]
-pub fn setup_and_test_and_cleaup(db_name: &str, level: Level, test: &mut dyn FnMut()) {
-    let dir = &filename::lsm_level_directory(db_name, level);
+pub fn setup_and_test_and_cleaup(level_address: &LevelAddress, test: &mut dyn FnMut()) {
+    let dir = &filename::lsm_level_directory(level_address);
     if std::path::Path::new(dir).exists() {
         std::fs::remove_dir_all(dir).unwrap(); //remove previous directory if panicked during tests and didn't clean up
     }
@@ -15,7 +15,7 @@ pub fn setup_and_test_and_cleaup(db_name: &str, level: Level, test: &mut dyn FnM
 
     test();
 
-    std::fs::remove_dir_all(db_name).unwrap();
+    std::fs::remove_dir_all(level_address.0).unwrap();
 }
 
 #[allow(dead_code)]

@@ -7,6 +7,8 @@ pub type Size = usize; //for lengths and capacities
 
 pub type Level = usize; //LSM level number
 pub type Run = usize; //Run number within LSM level
+pub type LevelAddress<'a> = (&'a str, Level);
+pub type RunAddress<'a> = (&'a str, Level, Run);
 pub type Page = usize; //Page index (assumes consistent page sizes)
 
 pub type Depth = usize; //Depth in a B-tree

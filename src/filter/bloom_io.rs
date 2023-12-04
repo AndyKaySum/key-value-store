@@ -7,7 +7,7 @@ use crate::{
     util::{
         filename,
         hash::BloomHasher,
-        types::{Key, Level, Page, Run, Size},
+        types::{Key, Page, RunAddress, Size},
     },
 };
 
@@ -22,8 +22,8 @@ pub struct BloomFilterIO {}
 #[allow(dead_code)]
 impl BloomFilterIO {
     ///Write bloom filter bitmap to storage
-    pub fn write(db_name: &str, level: Level, run: Run, bitmap: &[u8]) -> io::Result<()> {
-        let path = filename::bloom_filter_path(db_name, level, run);
+    pub fn write(run_address: &RunAddress, bitmap: &[u8]) -> io::Result<()> {
+        let path = filename::bloom_filter_path(run_address);
         let mut file = direct_io::create(&path)?;
 
         let mut buffer = bitmap.to_vec();
@@ -34,13 +34,11 @@ impl BloomFilterIO {
     }
     ///Deserialize an entire bloom filter file to bloom filter struct, useful for testing
     pub fn read(
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         bits_per_entry: Size,
         num_entries: Size,
     ) -> io::Result<BloomFilter> {
-        let path = filename::bloom_filter_path(db_name, level, run);
+        let path = filename::bloom_filter_path(run_address);
         let mut file = direct_io::open_read(&path)?;
 
         let bitmap_size = bitmap_len(num_entries, bits_per_entry);
@@ -55,26 +53,23 @@ impl BloomFilterIO {
     }
     ///Write filter using entries in an SST, useful for compaction
     pub fn write_from_sst(
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         bits_per_entry: Size,
         num_entries: Size,
     ) -> io::Result<()> {
+        let (db_name, level, run) = run_address;
         let mut filter = BloomFilter::new(num_entries, bits_per_entry);
         for page_index in 0..num_pages(num_entries) {
-            let page = get_sst_page(db_name, level, run, page_index, None)?;
+            let page = get_sst_page(run_address, page_index, None)?;
             let entries = serde_entry::deserialize(&page).unwrap_or_else(|why| panic!("Failed to deserialize entries during bloom filter creation, db_name: {db_name}, level: {level} run: {run}, page_index: {page_index}, reason: {why}"));
             filter.insert_entries(&entries);
         }
 
-        Self::write(db_name, level, run, &filter.bitmap)
+        Self::write(run_address, &filter.bitmap)
     }
     ///Check if bloom filter file contains an element. Returns false on first 0 found, otherwise true.
     pub fn contains(
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         key: Key,
         bits_per_entry: Size,
         num_entries: Size,
@@ -95,8 +90,7 @@ impl BloomFilterIO {
             let (page_index, byte_index, bit_index) = page_bit_index(bitmap_index as usize);
 
             if page_index != curr_page_index {
-                curr_page =
-                    get_bloom_page(db_name, level, run, page_index, buffer_pool.as_deref_mut())?;
+                curr_page = get_bloom_page(run_address, page_index, buffer_pool.as_deref_mut())?;
                 curr_page_index = page_index;
             }
 
@@ -117,6 +111,9 @@ mod tests {
 
     use super::*;
 
+    #[allow(unused_imports)]
+    use crate::util::types::Level;
+
     #[test]
     fn test() {
         let db_name = "test_bloom_io";
@@ -124,38 +121,30 @@ mod tests {
         let mut test = || {
             let level = LEVEL;
             let run = 0;
+            let run_address = &(db_name, level, run);
             let bits_per_entry = 5;
             let entries = vec![(0, 0), (1001, 1001)];
             let num_entries = entries.len();
 
-            array_sst::Sst.write(db_name, level, run, &entries).unwrap();
-            BloomFilterIO::write_from_sst(db_name, level, run, bits_per_entry, num_entries)
-                .unwrap();
+            array_sst::Sst.write(run_address, &entries).unwrap();
+            BloomFilterIO::write_from_sst(run_address, bits_per_entry, num_entries).unwrap();
 
             let read_filter =
-                BloomFilterIO::read(db_name, level, run, bits_per_entry, num_entries).unwrap();
+                BloomFilterIO::read(run_address, bits_per_entry, num_entries).unwrap();
 
             assert!(read_filter.contains(0));
             assert!(read_filter.contains(1001));
             assert!(!read_filter.contains(1002));
 
             let contains = |key| {
-                BloomFilterIO::contains(
-                    db_name,
-                    level,
-                    run,
-                    key,
-                    bits_per_entry,
-                    entries.len(),
-                    None,
-                )
-                .unwrap()
+                BloomFilterIO::contains(run_address, key, bits_per_entry, entries.len(), None)
+                    .unwrap()
             };
 
             assert!(contains(0));
             assert!(contains(1001));
             assert!(!contains(1002));
         };
-        setup_and_test_and_cleaup(db_name, LEVEL, &mut test);
+        setup_and_test_and_cleaup(&(db_name, LEVEL), &mut test);
     }
 }

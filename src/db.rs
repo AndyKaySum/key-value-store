@@ -337,7 +337,7 @@ impl Database {
         let num_runs_in_next_level: Run = match entry_counts.get(next_level) {
             Some(entry_count) => entry_count.len(),
             None => {
-                let directory = filename::lsm_level_directory(db_name, next_level);
+                let directory = filename::lsm_level_directory(&(db_name, next_level));
                 if !direct_io::path_exists(&directory) {
                     fs::create_dir(&directory).unwrap_or_else(|why| {
                         panic!("Unable to create directory for level {next_level}, reason {why}")
@@ -353,8 +353,8 @@ impl Database {
             let new_run = run + num_runs_in_next_level; //run number to rename assign to our run when it's moved
 
             //rename SST file
-            let sst_path = filename::sst_path(db_name, level, run);
-            let new_sst_path = filename::sst_path(db_name, next_level, new_run);
+            let sst_path = filename::sst_path(&(db_name, level, run));
+            let new_sst_path = filename::sst_path(&(db_name, next_level, new_run));
 
             assert!(
                 !Path::new(&new_sst_path).exists(),
@@ -363,16 +363,16 @@ impl Database {
             file_interface::rename_file(&sst_path, &new_sst_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename SST file from {sst_path} to {new_sst_path}, reason: {why}")); //every run has an SST file (don't need to check if it exists)
 
             //rename B-tree file (if applicable)
-            let btree_path = filename::sst_btree_path(db_name, level, run);
+            let btree_path = filename::sst_btree_path(&(db_name, level, run));
             if Path::new(&btree_path).exists() {
-                let new_btree_path = filename::sst_btree_path(db_name, next_level, new_run);
+                let new_btree_path = filename::sst_btree_path(&(db_name, next_level, new_run));
                 file_interface::rename_file(&btree_path, &new_btree_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename B-tree file from {btree_path} to {new_btree_path}, reason: {why}"));
             }
 
             //rename bloom filter (if applicable)
-            let bloom_path = filename::bloom_filter_path(db_name, level, run);
+            let bloom_path = filename::bloom_filter_path(&(db_name, level, run));
             if Path::new(&bloom_path).exists() {
-                let new_bloom_path = filename::bloom_filter_path(db_name, next_level, new_run);
+                let new_bloom_path = filename::bloom_filter_path(&(db_name, next_level, new_run));
                 file_interface::rename_file(&bloom_path, &new_bloom_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename bloom filter file from {bloom_path} to {new_bloom_path}, reason: {why}"));
             }
         }
@@ -406,13 +406,12 @@ impl Database {
 
             //remove bloom filter files, a new one will be made after compaction
             for run in 0..num_runs {
-                file_interface::remove_file(&filename::bloom_filter_path(&db.name, level, run), buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to delete bloom filter file at level: {level} run: {run}, reason: {why}"))
+                file_interface::remove_file(&filename::bloom_filter_path(&(&db.name, level, run)), buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to delete bloom filter file at level: {level} run: {run}, reason: {why}"))
             }
 
             //compact SSTs
             sst.compact(
-                &db.name,
-                level,
+                &(&db.name, level),
                 &mut db.metadata.entry_counts[level],
                 is_last_level,
                 buffer_pool,
@@ -422,10 +421,9 @@ impl Database {
             //write new bloom filter (if there is something left after compaction)
             if db.enable_bloom_filter() && !db.metadata.entry_counts[level].is_empty() {
                 let run = 0;
+                let run_address = &(db.name.as_str(), level, run);
                 BloomFilterIO::write_from_sst(
-                    &db.name,
-                    level,
-                    run,
+                    run_address,
                     db.bloom_filter_bits_per_entry(),
                     db.metadata.entry_counts[level][run],
                 )
@@ -492,14 +490,15 @@ impl Database {
         let num_entries = entries.len();
 
         self.sst_interface()
-            .write(&self.name, level, next_run_num, &entries)
+            .write(&(&self.name, level, next_run_num), &entries)
             .unwrap_or_else(|why| panic!("Failed to flush memtable to SST, reason: {why}"));
 
         if self.enable_bloom_filter() {
             let filter = BloomFilter::from_entries(&entries, self.bloom_filter_bits_per_entry());
-            BloomFilterIO::write(&self.name, level, next_run_num, &filter.bitmap).unwrap_or_else(
-                |why| panic!("Failed to write bloom filter for memtable flush, reason: {why}"),
-            );
+            BloomFilterIO::write(&(&self.name, level, next_run_num), &filter.bitmap)
+                .unwrap_or_else(|why| {
+                    panic!("Failed to write bloom filter for memtable flush, reason: {why}")
+                });
         }
 
         self.metadata.entry_counts[level].push(num_entries);
@@ -577,23 +576,20 @@ impl Database {
         let entry_counts = &self.metadata.entry_counts;
         let bits_per_entry = &self.config.bloom_filter_bits_per_entry;
         let mut callback = |level, run| {
-            if enable_bloom_filter && !BloomFilterIO::contains(&self.name, level, run, key, *bits_per_entry, entry_counts[level][run], buffer_pool.as_deref_mut())
+            let run_address = &(self.name.as_str(), level, run);
+            if enable_bloom_filter && !BloomFilterIO::contains(run_address, key, *bits_per_entry, entry_counts[level][run], buffer_pool.as_deref_mut())
                 .unwrap_or_else(|why| panic!("Something went wrong trying to query bloom filter for key {key} at level {level}, sst {run}, reason: {why}")) {
                 return false;
             }
             let mut get = || match search_algorithm {
                 SstSearchAlgorithm::Default => sst.get(
-                    &self.name,
-                    level,
-                    run,
+                    run_address,
                     key,
                     entry_counts[level][run],
                     buffer_pool.as_deref_mut(),
                 ),
                 SstSearchAlgorithm::BinarySearch => sst.binary_search_get(
-                    &self.name,
-                    level,
-                    run,
+                    run_address,
                     key,
                     entry_counts[level][run],
                     buffer_pool.as_deref_mut(),
@@ -639,20 +635,18 @@ impl Database {
         };
         let entry_counts = &self.metadata.entry_counts;
         let mut callback = |level, run| {
+            let run_address = &(self.name.as_str(), level, run);
+            let key_range = (key1, key2);
             let mut scan = || match search_algorithm {
                 SstSearchAlgorithm::Default => sst.scan(
-                    &self.name,
-                    level,
-                    run,
-                    (key1, key2),
+                    run_address,
+                    key_range,
                     entry_counts[level][run],
                     buffer_pool.as_deref_mut(),
                 ),
                 SstSearchAlgorithm::BinarySearch => sst.binary_search_scan(
-                    &self.name,
-                    level,
-                    run,
-                    (key1, key2),
+                    run_address,
+                    key_range,
                     entry_counts[level][run],
                     buffer_pool.as_deref_mut(),
                 ),

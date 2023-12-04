@@ -5,7 +5,6 @@ use crate::sst::btree_util::num_leaves;
 use crate::util::algorithm::{
     binary_search_entries, binary_search_leftmost, binary_search_rightmost,
 };
-use crate::util::types::{Depth, Node};
 use crate::{
     buffer_pool::BufferPool,
     file_io::{direct_io, serde_btree},
@@ -14,7 +13,7 @@ use crate::{
         btree_info::fanout,
         filename,
         system_info::num_entries_per_page,
-        types::{Entry, Key, Level, Run, Size, Value},
+        types::{Depth, Entry, Key, LevelAddress, Node, RunAddress, Size, Value},
     },
 };
 
@@ -34,13 +33,12 @@ impl SortedStringTable for Sst {
     /// since compaction will be implemented after we switch to a static btree implementation
     fn write(
         &self,
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         entries: &[Entry], //assumes this is sorted properly
     ) -> io::Result<()> {
+        let (_db_name, level, _run) = run_address;
         //step 1: create directory for level if needed and write sorted entries into SST file
-        array_sst::Sst.write(db_name, level, run, entries)?;
+        array_sst::Sst.write(run_address, entries)?;
 
         let num_entries = entries.len();
 
@@ -49,7 +47,7 @@ impl SortedStringTable for Sst {
             return Ok(()); //we only have enough entries for 1 node, that means it is the "root"
         }
 
-        let path = filename::sst_btree_path(db_name, level, run);
+        let path = filename::sst_btree_path(run_address);
         let mut file = direct_io::create(&path)?; //NOTE: the directory should exist by this point, so no checks needed (created in array_sst::write)
 
         //get largest entry in each SST page (last value in each)
@@ -81,100 +79,72 @@ impl SortedStringTable for Sst {
     }
 
     ///Deserializes entire SST to entry vec
-    fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<Entry>> {
-        array_sst::Sst.read(db_name, level, run)
+    fn read(&self, run_address: &RunAddress) -> io::Result<Vec<Entry>> {
+        array_sst::Sst.read(run_address)
     }
 
     fn binary_search_get(
         &self,
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         key: Key,
         num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Option<Value>> {
-        array_sst::Sst.binary_search_get(db_name, level, run, key, num_entries, buffer_pool)
+        array_sst::Sst.binary_search_get(run_address, key, num_entries, buffer_pool)
     }
 
     fn get(
         &self,
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         key: Key,
         num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Option<Value>> {
         if has_inner_nodes(num_entries) {
             //there is no btree file, only entries
-            return array_sst::Sst.get(db_name, level, run, key, num_entries, buffer_pool);
+            return array_sst::Sst.get(run_address, key, num_entries, buffer_pool);
         }
 
         //get SST page that should contain the entry we want, using inner node navigation
-        let page_index = btree_navigate(
-            db_name,
-            level,
-            run,
-            key,
-            num_entries,
-            buffer_pool.as_deref_mut(),
-        )?; //next_node;
+        let page_index = btree_navigate(run_address, key, num_entries, buffer_pool.as_deref_mut())?; //next_node;
 
-        let entries = get_entries_at_page(db_name, level, run, page_index, buffer_pool)?;
+        let entries = get_entries_at_page(run_address, page_index, buffer_pool)?;
 
         Ok(binary_search_entries(&entries, key))
     }
 
     fn binary_search_scan(
         &self,
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         key_range: (Key, Key),
         num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Vec<Entry>> {
-        array_sst::Sst.binary_search_scan(db_name, level, run, key_range, num_entries, buffer_pool)
+        array_sst::Sst.binary_search_scan(run_address, key_range, num_entries, buffer_pool)
     }
     ///Perform binary search to find the starting and end positions for our scan, then append all values within those bounds
     fn scan(
         &self,
-        db_name: &str,
-        level: Level,
-        run: Run,
+        run_address: &RunAddress,
         key_range: (Key, Key),
         num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
     ) -> io::Result<Vec<Entry>> {
         if num_entries <= fanout() {
             //there is no btree file, only entries
-            return array_sst::Sst.scan(db_name, level, run, key_range, num_entries, buffer_pool);
+            return array_sst::Sst.scan(run_address, key_range, num_entries, buffer_pool);
         }
 
         let (key1, key2) = key_range;
 
-        let lowerbound_page_index = btree_navigate(
-            db_name,
-            level,
-            run,
-            key1,
-            num_entries,
-            buffer_pool.as_deref_mut(),
-        )?;
+        let lowerbound_page_index =
+            btree_navigate(run_address, key1, num_entries, buffer_pool.as_deref_mut())?;
 
-        let upperbound_page_index = btree_navigate(
-            db_name,
-            level,
-            run,
-            key2,
-            num_entries,
-            buffer_pool.as_deref_mut(),
-        )?;
+        let upperbound_page_index =
+            btree_navigate(run_address, key2, num_entries, buffer_pool.as_deref_mut())?;
 
-        let mut get_entries = |page_index| {
-            get_entries_at_page(db_name, level, run, page_index, buffer_pool.as_deref_mut())
-        }; //for readability: reduce duplicate args
+        let mut get_entries =
+            |page_index| get_entries_at_page(run_address, page_index, buffer_pool.as_deref_mut()); //for readability: reduce duplicate args
 
         let lowerbound_page_entries = get_entries(lowerbound_page_index)?;
         let lowerbound_keys: Vec<Key> = lowerbound_page_entries
@@ -235,16 +205,15 @@ impl SortedStringTable for Sst {
         Ok(results)
     }
     ///Gets the number of entries in an sst
-    fn len(&self, db_name: &str, level: Level, run: Run) -> io::Result<Size> {
-        array_sst::Sst.len(db_name, level, run)
+    fn len(&self, run_address: &RunAddress) -> io::Result<Size> {
+        array_sst::Sst.len(run_address)
     }
 
     ///Compact all SST runs in a level into a single SST run, build B-tree nodes (if applicable),
     /// and update entry_counts to reflect that
     fn compact(
         &self,
-        db_name: &str,
-        level: Level,
+        level_address: &LevelAddress,
         entry_counts: &mut Vec<Size>,
         discard_tombstones: bool,
         mut buffer_pool: Option<&mut BufferPool>,
@@ -255,15 +224,14 @@ impl SortedStringTable for Sst {
 
         //Step 1: compact file containing entries
         array_sst::Sst.compact(
-            db_name,
-            level,
+            level_address,
             entry_counts,
             discard_tombstones,
             buffer_pool.as_deref_mut(),
         )?;
 
         //remove existing B-tree files
-        for path_result in fs::read_dir(filename::lsm_level_directory(db_name, level))? {
+        for path_result in fs::read_dir(filename::lsm_level_directory(level_address))? {
             let path = path_result?.path();
             if let Some(file_extension) = path.extension() {
                 if file_extension == filename::BTREE_FILE_EXTENSION {
@@ -277,6 +245,8 @@ impl SortedStringTable for Sst {
         }
 
         let run = 0;
+        let (db_name, level) = *level_address;
+        let run_address = &(db_name, level, run);
         //Step 2: if our new file takes up more than a page, build inner B-tree nodes
         if entry_counts.is_empty() || num_pages(entry_counts[run]) < 2 {
             return Ok(());
@@ -286,7 +256,7 @@ impl SortedStringTable for Sst {
         let num_pages = num_pages(num_entries);
 
         let get_key = |page_index, index_within_page| -> io::Result<Key> {
-            let page = get_sst_page(db_name, level, run, page_index, None)?;
+            let page = get_sst_page(run_address, page_index, None)?;
             let (key, ..) = serde_entry::deserialize_entry_within_page(&page, index_within_page).unwrap_or_else(|why| panic!("Failed to deserialize key at page: {page_index} index: {index_within_page}, reason: {why}"));
             Ok(key)
         };
@@ -295,7 +265,7 @@ impl SortedStringTable for Sst {
             .map(|_depth| (Vec::with_capacity(fanout()), 0))
             .collect();
 
-        let path = filename::sst_btree_path(db_name, level, run);
+        let path = filename::sst_btree_path(run_address);
         let mut file = direct_io::create(&path)?;
 
         for page_index in 0..num_pages {
@@ -368,6 +338,8 @@ mod tests {
     use super::*;
     #[allow(unused_imports)]
     use crate::util::testing::setup_and_test_and_cleaup;
+    #[allow(unused_imports)]
+    use crate::util::types::{Level, Run};
 
     #[test]
     fn test_simple_compaction_btree_nodes() {
@@ -386,23 +358,23 @@ mod tests {
             expected_result.extend(entries0.to_owned());
             expected_result.extend(entries1.to_owned());
 
-            btree_sst.write(db_name, LEVEL, 0, &entries0).unwrap();
-            btree_sst.write(db_name, LEVEL, 1, &entries1).unwrap();
+            btree_sst.write(&(db_name, LEVEL, 0), &entries0).unwrap();
+            btree_sst.write(&(db_name, LEVEL, 1), &entries1).unwrap();
 
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             btree_sst
-                .compact(db_name, LEVEL, &mut entry_counts, false, None)
+                .compact(&(db_name, LEVEL), &mut entry_counts, false, None)
                 .unwrap();
 
             let key_range = (entries0.first().unwrap().0, entries1.last().unwrap().0);
             let result = btree_sst
-                .scan(db_name, LEVEL, 0, key_range, entry_counts[0], None)
+                .scan(&(db_name, LEVEL, 0), key_range, entry_counts[0], None)
                 .unwrap();
 
             assert_eq!(result.len(), expected_result.len());
             assert_eq!(result, expected_result);
         };
-        setup_and_test_and_cleaup(db_name, LEVEL, &mut test);
+        setup_and_test_and_cleaup(&(db_name, LEVEL), &mut test);
     }
 
     #[test]
@@ -424,7 +396,9 @@ mod tests {
                     .collect();
                 entry_counts.push(run_entries.len());
 
-                btree_sst.write(db_name, LEVEL, run, &run_entries).unwrap();
+                btree_sst
+                    .write(&(db_name, LEVEL, run), &run_entries)
+                    .unwrap();
 
                 entries.push(run_entries);
             }
@@ -435,7 +409,7 @@ mod tests {
             });
 
             btree_sst
-                .compact(db_name, LEVEL, &mut entry_counts, false, None)
+                .compact(&(db_name, LEVEL), &mut entry_counts, false, None)
                 .unwrap();
 
             let key_range = (
@@ -443,12 +417,12 @@ mod tests {
                 entries[num_runs - 1].last().unwrap().0,
             );
             let result = btree_sst
-                .scan(db_name, LEVEL, 0, key_range, entry_counts[0], None)
+                .scan(&(db_name, LEVEL, 0), key_range, entry_counts[0], None)
                 .unwrap();
 
             assert_eq!(result.len(), expected_result.len());
             assert_eq!(result, expected_result);
         };
-        setup_and_test_and_cleaup(db_name, LEVEL, &mut test);
+        setup_and_test_and_cleaup(&(db_name, LEVEL), &mut test);
     }
 }

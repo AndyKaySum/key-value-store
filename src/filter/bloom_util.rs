@@ -5,7 +5,7 @@ use crate::{
     util::{
         filename,
         system_info::page_size,
-        types::{Level, Page, Run, Size},
+        types::{Page, RunAddress, Size},
     },
 };
 
@@ -42,13 +42,11 @@ pub fn num_hash_functions(bits_per_entry: usize) -> usize {
 }
 
 pub fn get_bloom_page(
-    db_name: &str,
-    level: Level,
-    run: Run,
+    run_address: &RunAddress,
     page_index: Page,
     buffer_pool: Option<&mut BufferPool>,
 ) -> std::io::Result<Vec<u8>> {
-    let path = filename::bloom_filter_path(db_name, level, run);
+    let path = filename::bloom_filter_path(run_address);
     file_interface::get_page(&path, page_index, buffer_pool)
 }
 

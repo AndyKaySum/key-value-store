@@ -5,7 +5,7 @@ use crate::{
     util::{
         filename,
         system_info::num_entries_per_page,
-        types::{Entry, Level, Page, Run, Size},
+        types::{Entry, Page, RunAddress, Size},
     },
 };
 use std::io;
@@ -15,25 +15,22 @@ pub fn num_pages(num_entries: Size) -> Size {
 }
 
 pub fn get_sst_page(
-    db_name: &str,
-    level: Level,
-    run: Run,
+    run_address: &RunAddress,
     page_index: Page,
     buffer_pool: Option<&mut BufferPool>,
 ) -> io::Result<Vec<u8>> {
-    let path = filename::sst_path(db_name, level, run);
+    let path = filename::sst_path(run_address);
     file_interface::get_page(&path, page_index, buffer_pool)
 }
 
 ///Get page from bufferpool or through I/O and return the entries in that page
 pub fn get_entries_at_page(
-    db_name: &str,
-    level: Level,
-    run: Run,
+    run_address: &RunAddress,
     page_index: Page,
     buffer_pool: Option<&mut BufferPool>,
 ) -> io::Result<Vec<Entry>> {
-    let page = get_sst_page(db_name, level, run, page_index, buffer_pool)?;
+    let (db_name, level, run) = run_address;
+    let page = get_sst_page(run_address, page_index, buffer_pool)?;
     let entries = serde_entry::deserialize(&page).unwrap_or_else(|_| {
         panic!(
             "Failed to deserialize page {} from db {db_name} level {level} run {run}",
@@ -44,12 +41,10 @@ pub fn get_entries_at_page(
 }
 
 pub fn get_btree_page(
-    db_name: &str,
-    level: Level,
-    run: Run,
+    run_address: &RunAddress,
     page_index: Page,
     buffer_pool: Option<&mut BufferPool>,
 ) -> io::Result<Vec<u8>> {
-    let path = filename::sst_btree_path(db_name, level, run);
+    let path = filename::sst_btree_path(run_address);
     file_interface::get_page(&path, page_index, buffer_pool)
 }

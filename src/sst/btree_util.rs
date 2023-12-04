@@ -6,7 +6,7 @@ use crate::file_io::serde_btree;
 use crate::util::algorithm::binary_search_leftmost;
 use crate::util::btree_info::{fanout, node_size, ROOT_PAGE_OFFSET};
 use crate::util::system_info::num_entries_per_page;
-use crate::util::types::{Depth, Level, Node, Run};
+use crate::util::types::{Depth, Node, RunAddress};
 use crate::util::types::{Key, Page, Size};
 
 use super::sst_util::{get_btree_page, num_pages};
@@ -85,26 +85,19 @@ pub fn get_last_in_each_chunk(elements: &[Key], chunk_size: usize) -> Vec<Key> {
 
 ///Navigate inner nodes of B-tree starting from root, returns page index of where key may be
 pub fn btree_navigate(
-    db_name: &str,
-    level: Level,
-    run: Run,
+    run_address: &RunAddress,
     key: Key,
     num_entries: Size,
     mut buffer_pool: Option<&mut BufferPool>,
 ) -> std::io::Result<Page> {
+    let (db_name, level, run) = run_address;
     let num_inner_levels = tree_depth(num_entries);
 
     let mut curr_leaf_page_index: Page = 0;
     let mut next_node: Node = 0;
     for depth in 0..num_inner_levels {
         let node_page_index = node_page_index(depth, next_node, num_entries);
-        let node_page = get_btree_page(
-            db_name,
-            level,
-            run,
-            node_page_index,
-            buffer_pool.as_deref_mut(),
-        )?; //NOTE: watch out for the deref_mut, we don't want to accdientally copy the buffer pool, TODO: verify this doesn't break it
+        let node_page = get_btree_page(run_address, node_page_index, buffer_pool.as_deref_mut())?; //NOTE: watch out for the deref_mut, we don't want to accdientally copy the buffer pool, TODO: verify this doesn't break it
 
         let node_delimeters = serde_btree::deserialize(&node_page).unwrap_or_else(|_| panic!("Failed to deserialize B-tree node during B-tree navigation while searching for key: {key}, name: {db_name}, level: {level}, run: {run}, page_index: {node_page_index} num_entries: {num_entries}"));
 
