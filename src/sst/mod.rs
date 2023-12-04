@@ -7,23 +7,17 @@ use std::io;
 
 use crate::{
     buffer_pool::BufferPool,
-    util::types::{Key, Level, Run, Size, Value},
+    util::types::{Entry, Key, Level, Run, Size, Value},
 };
 
 ///Common traits needed for for any sst implementation.
 /// NOTE: this trait is only responsible for a single file, not the entire level or database's files
 pub trait SortedStringTable {
     ///Write entire SST
-    fn write(
-        &self,
-        db_name: &str,
-        level: Level,
-        run: Run,
-        entries: &[(Key, Value)],
-    ) -> io::Result<()>;
+    fn write(&self, db_name: &str, level: Level, run: Run, entries: &[Entry]) -> io::Result<()>;
 
     ///Deserializes entire SST
-    fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<(Key, Value)>>;
+    fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<Entry>>;
 
     ///Search for specific key
     fn get(
@@ -56,7 +50,7 @@ pub trait SortedStringTable {
         key_range: (Key, Key),
         num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
-    ) -> io::Result<Vec<(Key, Value)>>;
+    ) -> io::Result<Vec<Entry>>;
 
     ///Range scan operation using binary search explicitly. NOTE: key range is inclusive
     fn binary_search_scan(
@@ -67,7 +61,7 @@ pub trait SortedStringTable {
         key_range: (Key, Key),
         num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
-    ) -> io::Result<Vec<(Key, Value)>>;
+    ) -> io::Result<Vec<Entry>>;
 
     //Number of entries in SST
     fn len(&self, db_name: &str, level: Level, run: Run) -> io::Result<Size>;

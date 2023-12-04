@@ -2,7 +2,7 @@ use crate::{
     filter::bloom_util::{bitmap_len, BYTE_SIZE},
     util::{
         hash::BloomHasher,
-        types::{Key, Value},
+        types::{Entry, Key},
     },
 };
 
@@ -21,7 +21,7 @@ impl BloomFilter {
             bitmap: Self::create_bitmap(num_entries, bits_per_entry),
         }
     }
-    pub fn from_entries(entries: &Vec<(Key, Value)>, bits_per_entry: usize) -> Self {
+    pub fn from_entries(entries: &Vec<Entry>, bits_per_entry: usize) -> Self {
         let mut filter = Self {
             num_hash_functions: num_hash_functions(bits_per_entry),
             bitmap: Self::create_bitmap(entries.len(), bits_per_entry),
@@ -38,7 +38,7 @@ impl BloomFilter {
         }
     }
 
-    pub fn insert_entries(&mut self, entries: &Vec<(Key, Value)>) {
+    pub fn insert_entries(&mut self, entries: &Vec<Entry>) {
         for (key, ..) in entries {
             self.insert(*key);
         }

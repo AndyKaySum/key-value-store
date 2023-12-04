@@ -5,7 +5,7 @@ use crate::{
     util::{
         filename,
         system_info::num_entries_per_page,
-        types::{Key, Level, Page, Run, Size, Value},
+        types::{Entry, Level, Page, Run, Size},
     },
 };
 use std::io;
@@ -32,7 +32,7 @@ pub fn get_entries_at_page(
     run: Run,
     page_index: Page,
     buffer_pool: Option<&mut BufferPool>,
-) -> io::Result<Vec<(Key, Value)>> {
+) -> io::Result<Vec<Entry>> {
     let page = get_sst_page(db_name, level, run, page_index, buffer_pool)?;
     let entries = serde_entry::deserialize(&page).unwrap_or_else(|_| {
         panic!(

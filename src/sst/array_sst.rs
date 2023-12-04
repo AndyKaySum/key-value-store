@@ -11,7 +11,7 @@ use crate::{
     util::{
         filename,
         system_info::{self, num_entries_per_page, ENTRY_SIZE},
-        types::{Key, Level, Page, Run, Size, Value},
+        types::{Entry, Key, Level, Page, Run, Size, Value},
     },
 };
 use std::{collections::BinaryHeap, fs, io};
@@ -30,13 +30,7 @@ impl SortedStringTable for Sst {
     ///Writes key-value array (or vec) onto SST file in appropriate directory.
     ///NOTE: Avoid using arrays larger than the size of the buffer. We shouldn't need to handle very large writes
     /// since compaction will be implemented after we switch to a static btree implementation
-    fn write(
-        &self,
-        db_name: &str,
-        level: Level,
-        run: Run,
-        entries: &[(Key, Value)],
-    ) -> io::Result<()> {
+    fn write(&self, db_name: &str, level: Level, run: Run, entries: &[Entry]) -> io::Result<()> {
         //create directory for the level if needed
         let directory = filename::lsm_level_directory(db_name, level);
         if !direct_io::path_exists(&directory) {
@@ -50,7 +44,7 @@ impl SortedStringTable for Sst {
     }
 
     ///Deserializes entire SST to entry vec
-    fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<(Key, Value)>> {
+    fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<Entry>> {
         let mut file = direct_io::open_read(&filename::sst_path(db_name, level, run))?;
         deserialize_from(&mut file)
     }
@@ -77,7 +71,7 @@ impl SortedStringTable for Sst {
         let mut curr_page_index = usize::MAX;
         let mut curr_page = Vec::<u8>::new();
 
-        let mut get_middle = |left: i64, right: i64| -> io::Result<((Key, Value), i64)> {
+        let mut get_middle = |left: i64, right: i64| -> io::Result<(Entry, i64)> {
             let middle_index = (left + right) / 2;
             let (middle_page_index, entry_index) =
                 index_to_2d_index(system_info::num_entries_per_page(), middle_index as usize);
@@ -115,7 +109,7 @@ impl SortedStringTable for Sst {
         key_range: (Key, Key),
         num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
-    ) -> io::Result<Vec<(Key, Value)>> {
+    ) -> io::Result<Vec<Entry>> {
         self.scan(db_name, level, run, key_range, num_entries, buffer_pool) //Default scan function uses binary search
     }
     ///Perform binary search to find the starting and end positions for our scan, then append all values within those bounds
@@ -127,9 +121,9 @@ impl SortedStringTable for Sst {
         key_range: (Key, Key),
         num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
-    ) -> io::Result<Vec<(Key, Value)>> {
+    ) -> io::Result<Vec<Entry>> {
         let (key1, key2) = key_range;
-        let mut results: Vec<(Key, Value)> = Vec::new();
+        let mut results: Vec<Entry> = Vec::new();
 
         //hold onto the current page we're looking at to avoid some repeated deserialization
         let mut curr_page_index = usize::MAX;
@@ -271,7 +265,7 @@ impl SortedStringTable for Sst {
             |run, page_index| get_entries_at_page(db_name, level, run, page_index, None);
 
         //Input buffer along with metadata for each run, index within buffer, page_index of buffer entries, boolean to indicate whether or not any more values exist in SST
-        type InputBufferData = (Vec<(Key, Value)>, usize, Page);
+        type InputBufferData = (Vec<Entry>, usize, Page);
         let mut input_buffers: Vec<InputBufferData> = (0..num_runs)
             .map(|run| {
                 let entries = match get_entries(run, 0) {
@@ -284,35 +278,34 @@ impl SortedStringTable for Sst {
 
         //Pull entry from buffer, if at end, then fill buffer with next page of entries
         //Return None if no more entires to pull in run's SST
-        let pull_entry = |input_buffers: &mut Vec<InputBufferData>,
-                          run: Run|
-         -> io::Result<Option<(Key, Value)>> {
-            let (entries, curr_index, curr_page) = &mut input_buffers[run];
+        let pull_entry =
+            |input_buffers: &mut Vec<InputBufferData>, run: Run| -> io::Result<Option<Entry>> {
+                let (entries, curr_index, curr_page) = &mut input_buffers[run];
 
-            if *curr_index >= entries.len() {
-                //check if we are at the end of this input buffer
-                if *curr_page + 1 < page_counts[run] {
-                    //if there is another page of entries to pull into our buffer, do it
-                    *curr_page += 1;
-                    *entries = get_entries(run, *curr_page)?;
+                if *curr_index >= entries.len() {
+                    //check if we are at the end of this input buffer
+                    if *curr_page + 1 < page_counts[run] {
+                        //if there is another page of entries to pull into our buffer, do it
+                        *curr_page += 1;
+                        *entries = get_entries(run, *curr_page)?;
 
-                    *curr_index = 0;
-                } else {
-                    //no more entries in the SST to pull into buffer
-                    return Ok(None);
+                        *curr_index = 0;
+                    } else {
+                        //no more entries in the SST to pull into buffer
+                        return Ok(None);
+                    }
                 }
-            }
 
-            let entry = entries[*curr_index];
-            *curr_index += 1;
+                let entry = entries[*curr_index];
+                *curr_index += 1;
 
-            Ok(Some(entry))
-        };
+                Ok(Some(entry))
+            };
 
         type BufferHeap = BinaryHeap<(Key, Run, Value)>;
         let mut heap = BufferHeap::new(); //to ensure we write the smallest value in our buffers
 
-        let mut output_buffer: Vec<(Key, Value)> = Vec::with_capacity(num_entries_per_page());
+        let mut output_buffer: Vec<Entry> = Vec::with_capacity(num_entries_per_page());
         let temp_file_name = filename::sst_compaction_path(db_name, level);
         let mut output = direct_io::create(&temp_file_name)?;
         let mut entries_written: Size = 0;
@@ -334,7 +327,7 @@ impl SortedStringTable for Sst {
         //take item from heap and replace it with another element in its run (if there is any)
         let heap_swap_extract = |heap: &mut BufferHeap,
                                  input_buffers: &mut Vec<InputBufferData>|
-         -> io::Result<Option<(Key, Value)>> {
+         -> io::Result<Option<Entry>> {
             if let Some((entry, run)) = heap_extract(heap) {
                 if let Some(replacement_entry) = pull_entry(input_buffers, run)? {
                     let (key, value) = replacement_entry;
@@ -344,7 +337,7 @@ impl SortedStringTable for Sst {
             }
             Ok(None)
         };
-        let mut flush_output_buffer = |output_buffer: &mut Vec<(Key, Value)>| -> io::Result<()> {
+        let mut flush_output_buffer = |output_buffer: &mut Vec<Entry>| -> io::Result<()> {
             if output_buffer.is_empty() {
                 return Ok(());
             }
@@ -353,15 +346,14 @@ impl SortedStringTable for Sst {
             output_buffer.clear();
             Ok(())
         };
-        let mut output_buffer_insert =
-            |output_buffer: &mut Vec<(Key, Value)>, entry| -> io::Result<()> {
-                output_buffer.push(entry);
-                //if we filled up our buffer, flush buffer to compaction file
-                if output_buffer.len() >= num_entries_per_page() {
-                    flush_output_buffer(output_buffer)?;
-                }
-                Ok(())
-            };
+        let mut output_buffer_insert = |output_buffer: &mut Vec<Entry>, entry| -> io::Result<()> {
+            output_buffer.push(entry);
+            //if we filled up our buffer, flush buffer to compaction file
+            if output_buffer.len() >= num_entries_per_page() {
+                flush_output_buffer(output_buffer)?;
+            }
+            Ok(())
+        };
 
         //put one entry from each buffer, NOTE: higher run number is younger
         for run in (0..entry_counts.len()).rev() {
@@ -438,9 +430,9 @@ mod tests {
         let mut test = || {
             let sst = Sst {};
             // let iter = 0..num_entries_per_page() as Key;
-            let entries0: Vec<(Key, Value)> = vec![(0, 0), (1, 0)];
-            let entries1: Vec<(Key, Value)> = vec![(0, 1), (1, 1)];
-            let expected_result: Vec<(Key, Value)> = entries1.clone();
+            let entries0: Vec<Entry> = vec![(0, 0), (1, 0)];
+            let entries1: Vec<Entry> = vec![(0, 1), (1, 1)];
+            let expected_result: Vec<Entry> = entries1.clone();
 
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
@@ -463,9 +455,9 @@ mod tests {
         let mut test = || {
             let sst = Sst {};
             // let iter = 0..num_entries_per_page() as Key;
-            let entries0: Vec<(Key, Value)> = vec![(0, 0), (2, 0)];
-            let entries1: Vec<(Key, Value)> = vec![(1, 1), (2, 1)];
-            let expected_result: Vec<(Key, Value)> = vec![(0, 0), (1, 1), (2, 1)];
+            let entries0: Vec<Entry> = vec![(0, 0), (2, 0)];
+            let entries1: Vec<Entry> = vec![(1, 1), (2, 1)];
+            let expected_result: Vec<Entry> = vec![(0, 0), (1, 1), (2, 1)];
 
             let mut entry_counts = vec![entries0.len(), entries1.len()];
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();
@@ -488,19 +480,19 @@ mod tests {
         let mut test = || {
             let sst = Sst {};
             let iter = 0..num_entries_per_page() as Key;
-            let mut entries0: Vec<(Key, Value)> = iter
+            let mut entries0: Vec<Entry> = iter
                 .to_owned()
                 .skip(0)
                 .step_by(2)
                 .map(|key| (key, -key))
                 .collect();
-            let mut entries1: Vec<(Key, Value)> = iter
+            let mut entries1: Vec<Entry> = iter
                 .to_owned()
                 .skip(1)
                 .step_by(2)
                 .map(|key| (key, key))
                 .collect();
-            let mut expected_result: Vec<(Key, Value)> = iter
+            let mut expected_result: Vec<Entry> = iter
                 .to_owned()
                 .map(|key| {
                     if key % 2 == 0 {
@@ -563,7 +555,7 @@ mod tests {
         let mut test = || {
             let sst = Sst {};
             let iter = 0..num_entries_per_page() as Key;
-            let entries0: Vec<(Key, Value)> = iter
+            let entries0: Vec<Entry> = iter
                 .to_owned()
                 .skip(0)
                 .step_by(2)
@@ -604,19 +596,19 @@ mod tests {
             assert!(sst.read(db_name, LEVEL, 0).is_err());
 
             //EDGE CASE TEST 3: compacting 1 SST filled with tombstones
-            let entries0: Vec<(Key, Value)> = iter
+            let entries0: Vec<Entry> = iter
                 .to_owned()
                 .skip(0)
                 .step_by(2)
                 .map(|key| (key, Database::TOMBSTONE_VALUE))
                 .collect();
-            let entries1: Vec<(Key, Value)> = iter
+            let entries1: Vec<Entry> = iter
                 .to_owned()
                 .skip(1)
                 .step_by(2)
                 .map(|key| (key, Database::TOMBSTONE_VALUE))
                 .collect();
-            let expected_result: Vec<(Key, Value)> =
+            let expected_result: Vec<Entry> =
                 iter.map(|key| (key, Database::TOMBSTONE_VALUE)).collect();
 
             //3.1: test with discard_tombstones disabled
@@ -649,11 +641,10 @@ mod tests {
         const LEVEL: Level = 0;
         let mut test = || {
             let sst = Sst {};
-            let entries0: Vec<(Key, Value)> = vec![(0, 0), (1, 0), (32, 0), (64, 0)];
-            let entries1: Vec<(Key, Value)> = vec![(0, 1), (1, Database::TOMBSTONE_VALUE)];
-            let entries2: Vec<(Key, Value)> =
-                vec![(1, 2), (16, Database::TOMBSTONE_VALUE), (32, 2)];
-            let expected_result: Vec<(Key, Value)> = vec![
+            let entries0: Vec<Entry> = vec![(0, 0), (1, 0), (32, 0), (64, 0)];
+            let entries1: Vec<Entry> = vec![(0, 1), (1, Database::TOMBSTONE_VALUE)];
+            let entries2: Vec<Entry> = vec![(1, 2), (16, Database::TOMBSTONE_VALUE), (32, 2)];
+            let expected_result: Vec<Entry> = vec![
                 (0, 1),
                 (1, 2),
                 (16, Database::TOMBSTONE_VALUE),
@@ -676,7 +667,7 @@ mod tests {
             assert_eq!(compaction_entries, expected_result);
 
             //TEST 2: with discarding tombstones
-            let expected_result: Vec<(Key, Value)> = vec![(0, 1), (1, 2), (32, 2), (64, 0)];
+            let expected_result: Vec<Entry> = vec![(0, 1), (1, 2), (32, 2), (64, 0)];
             let mut entry_counts = vec![entries0.len(), entries1.len(), entries2.len()];
 
             sst.write(db_name, LEVEL, 0, &entries0).unwrap();

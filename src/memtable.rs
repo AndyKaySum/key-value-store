@@ -1,6 +1,6 @@
 use crate::{
     data_structures::avl::AvlTree,
-    util::types::{Key, Size, Value},
+    util::types::{Entry, Key, Size, Value},
 };
 
 #[derive(Debug)]
@@ -30,13 +30,13 @@ impl Memtable {
     }
     // Performs inorder traversal of the tree and returns a vector of all the key-value pairs
     // with key between key1 and key2
-    pub fn scan(&self, key1: Key, key2: Key) -> Vec<(Key, Value)> {
+    pub fn scan(&self, key1: Key, key2: Key) -> Vec<Entry> {
         let mut result = Vec::new();
         self.tree
             .for_each_in_range(&key1, &key2, &mut |key, value| result.push((*key, *value)));
         result
     }
-    pub fn as_vec(&self) -> Vec<(Key, Value)> {
+    pub fn as_vec(&self) -> Vec<Entry> {
         let mut result = Vec::new();
         self.tree
             .for_each(&mut |key, value| result.push((*key, *value)));

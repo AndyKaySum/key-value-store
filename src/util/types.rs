@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Key = i64;
 pub type Value = i64;
+pub type Entry = (Key, Value);
 pub type Size = usize; //for lengths and capacities
 
 pub type Level = usize; //LSM level number

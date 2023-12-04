@@ -14,7 +14,7 @@ use crate::{
         btree_info::fanout,
         filename,
         system_info::num_entries_per_page,
-        types::{Key, Level, Run, Size, Value},
+        types::{Entry, Key, Level, Run, Size, Value},
     },
 };
 
@@ -37,7 +37,7 @@ impl SortedStringTable for Sst {
         db_name: &str,
         level: Level,
         run: Run,
-        entries: &[(Key, Value)], //assumes this is sorted properly
+        entries: &[Entry], //assumes this is sorted properly
     ) -> io::Result<()> {
         //step 1: create directory for level if needed and write sorted entries into SST file
         array_sst::Sst.write(db_name, level, run, entries)?;
@@ -81,7 +81,7 @@ impl SortedStringTable for Sst {
     }
 
     ///Deserializes entire SST to entry vec
-    fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<(Key, Value)>> {
+    fn read(&self, db_name: &str, level: Level, run: Run) -> io::Result<Vec<Entry>> {
         array_sst::Sst.read(db_name, level, run)
     }
 
@@ -134,7 +134,7 @@ impl SortedStringTable for Sst {
         key_range: (Key, Key),
         num_entries: Size,
         buffer_pool: Option<&mut BufferPool>,
-    ) -> io::Result<Vec<(Key, Value)>> {
+    ) -> io::Result<Vec<Entry>> {
         array_sst::Sst.binary_search_scan(db_name, level, run, key_range, num_entries, buffer_pool)
     }
     ///Perform binary search to find the starting and end positions for our scan, then append all values within those bounds
@@ -146,7 +146,7 @@ impl SortedStringTable for Sst {
         key_range: (Key, Key),
         num_entries: Size,
         mut buffer_pool: Option<&mut BufferPool>,
-    ) -> io::Result<Vec<(Key, Value)>> {
+    ) -> io::Result<Vec<Entry>> {
         if num_entries <= fanout() {
             //there is no btree file, only entries
             return array_sst::Sst.scan(db_name, level, run, key_range, num_entries, buffer_pool);
@@ -208,7 +208,7 @@ impl SortedStringTable for Sst {
             return Ok(scan_result);
         }
 
-        let mut results: Vec<(Key, Value)> = Vec::new();
+        let mut results: Vec<Entry> = Vec::new();
 
         //Add lowerbound entries if there are any (lowerbound_within_page_index is inside its entries array)
         //EDGE CASE: lowerbound index is "after" last element, that means our lowerbound entry is contained
@@ -379,9 +379,8 @@ mod tests {
             let btree_sst = Sst {};
             let num_entries_per_sst = fanout() * num_entries_per_page();
             let iter = 0..num_entries_per_sst as Key; //needs #fanout nodes + 1 root
-            let entries0: Vec<(Key, Value)> = iter.to_owned().map(|key| (key, 0)).collect();
-            let entries1: Vec<(Key, Value)> =
-                iter.map(|key| (entries0.len() as Key + key, 1)).collect();
+            let entries0: Vec<Entry> = iter.to_owned().map(|key| (key, 0)).collect();
+            let entries1: Vec<Entry> = iter.map(|key| (entries0.len() as Key + key, 1)).collect();
 
             let mut expected_result = vec![];
             expected_result.extend(entries0.to_owned());
@@ -417,10 +416,10 @@ mod tests {
             let num_entries_per_sst = fanout() * num_entries_per_page();
             let num_runs: Run = 5;
 
-            let mut entries = Vec::<Vec<(Key, Value)>>::new();
+            let mut entries = Vec::<Vec<Entry>>::new();
             let mut entry_counts = Vec::<Size>::new();
             for run in 0..num_runs {
-                let run_entries: Vec<(Key, Value)> = (0..num_entries_per_sst as Key)
+                let run_entries: Vec<Entry> = (0..num_entries_per_sst as Key)
                     .map(|key| (key + (run * num_entries_per_sst) as Key, run as Value))
                     .collect();
                 entry_counts.push(run_entries.len());

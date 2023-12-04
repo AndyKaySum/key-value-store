@@ -15,7 +15,7 @@ use crate::{
     util::{filename, types::SstSearchAlgorithm},
     util::{
         system_info::{self, ENTRY_SIZE},
-        types::{CompactionPolicy, Key, Level, Run, Size, SstImplementation, Value},
+        types::{CompactionPolicy, Entry, Key, Level, Run, Size, SstImplementation, Value},
     },
 };
 
@@ -616,13 +616,13 @@ impl Database {
         }
         sst_search_result
     }
-    pub fn scan(&mut self, key1: Key, key2: Key) -> Vec<(Key, Value)> {
+    pub fn scan(&mut self, key1: Key, key2: Key) -> Vec<Entry> {
         //NOTE: might be able to improve this by doing a "for each in range" on each SST instead, might not be worth it though
         let results = self.memtable.scan(key1, key2);
         let mut unique_key_set: HashSet<Key> =
             results.iter().map(|(key, _)| key.to_owned()).collect();
         //NOTE: the reason we can use negative keys in our max_heap is because negative Key::MIN is not allowed to be inserted, otherwise that would cause an overflow
-        let mut max_heap: BinaryHeap<(Key, Value)> = results
+        let mut max_heap: BinaryHeap<Entry> = results
             .iter()
             .map(|(key, value)| (-key, value.to_owned()))
             .collect();
@@ -789,7 +789,7 @@ mod tests {
         let mut test = |mut db: Database| {
             let (min, max) = (-1000, 1000);
             let range = min..max + 1; //3.5 pages of
-            let mut entries = Vec::<(Key, Value)>::new();
+            let mut entries = Vec::<Entry>::new();
 
             //Test puts
             for i in range.into_iter() {
@@ -868,7 +868,7 @@ mod tests {
             }
 
             //Test how deletes affect scan
-            let filtered: Vec<(Key, Value)> = entries
+            let filtered: Vec<Entry> = entries
                 .iter()
                 .enumerate()
                 .filter(|&(i, _)| i % delete_step != 0)
@@ -897,7 +897,7 @@ mod tests {
         let mut test = |mut db: Database| {
             let (min, max) = (0, memtable_cap as i64);
             let range = min..max + 1; //1 extra to force a flush to sst
-            let mut entries = Vec::<(Key, Value)>::new();
+            let mut entries = Vec::<Entry>::new();
 
             //Test puts
             for i in range.into_iter() {
@@ -953,7 +953,7 @@ mod tests {
             }
 
             //Test how deletes affect scan
-            let filtered: Vec<(Key, Value)> = entries
+            let filtered: Vec<Entry> = entries
                 .iter()
                 .enumerate()
                 .filter(|&(i, _)| i % delete_step != 0)
