@@ -198,7 +198,7 @@ pub fn part3() {
     println!("Buffer pool capacity: {} MB", BUFFER_POOL_CAPACITY_MB_SIZE);
     println!(
         "Bloom filter bits per entry: {}\n",
-        BUFFER_POOL_CAPACITY_MB_SIZE
+        BLOOM_FILTER_BITS_PER_ENTRY
     );
 
     let database_alterations = |db: Database| -> Database {
