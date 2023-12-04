@@ -16,11 +16,11 @@ pub fn get_page(
     if let Some(pool) = buffer_pool {
         //NOTE: watch out for bugs from this, not super sure how things work out here
         if let Some(page) = pool.get(path, page_index) {
-            Ok(page.to_vec())
+            Ok(page)
         } else {
             let mut file = direct_io::open_read(path)?;
             let page_bytes = direct_io::read_page(&mut file, page_index)?;
-            pool.insert(path, page_index, page_bytes.as_slice());
+            pool.insert(path, page_index, &page_bytes);
             Ok(page_bytes)
         }
     } else {

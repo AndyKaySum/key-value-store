@@ -6,7 +6,7 @@ use crate::{
     sst::sst_util::{get_sst_page, num_pages},
     util::{
         filename,
-        hash::FastHasher,
+        hash::BloomHasher,
         types::{Key, Level, Page, Run, Size},
     },
 };
@@ -87,7 +87,7 @@ impl BloomFilterIO {
         let mut curr_page = Vec::<u8>::new();
 
         for seed in 0..num_hash_functions {
-            let bitmap_index = FastHasher::hash_to_index(
+            let bitmap_index = BloomHasher::hash_to_index(
                 key.to_le_bytes(),
                 seed as u64,
                 bitmap_num_bits(num_entries, bits_per_entry),

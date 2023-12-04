@@ -83,8 +83,18 @@ impl BufferPool {
             let frames = &mut self.frames;
 
             //if this bucket has not been accessed and we can remove its least recently used page, increment counter
-            if !frames.accessed(handle) && frames.bucket_remove_lru(handle) {
-                num_evicted += 1;
+            if !frames.accessed(handle) {
+                if let Some((path_evicted, page_index_evicted)) = frames.bucket_remove_lru(handle) {
+                    num_evicted += 1;
+                    //remove page index from metadata
+                    if let Some(filename_pages_of_evicted) = self.filename_pages.get_mut(&path_evicted) {
+                        filename_pages_of_evicted.remove(&page_index_evicted);
+                        //if there is no metadata for this file left, remove its metadata set altogether
+                        if filename_pages_of_evicted.is_empty() {
+                            self.filename_pages.remove(&path_evicted);
+                        }
+                    }
+                }
             }
             self.move_clock_handle();
         }
@@ -194,12 +204,18 @@ mod tests {
         //check if new page is added and oldest is evicted
         assert_eq!(b.get(path, 3), Some(vec![0, 0, 0, 1, 1]));
         assert_eq!(b.get(path, 0), None);
+        //check if evicted has it's metadata removed
+        assert_eq!(b.filename_pages.get(path).unwrap().get(&0), None);
+        assert_eq!(b.filename_pages.get(path).unwrap().len(), 3);
 
         b.insert(path, 4, &[0, 0, 1, 0, 0]);
 
         //check if new page is added and oldest is evicted
         assert_eq!(b.get(path, 4), Some(vec![0, 0, 1, 0, 0]));
         assert_eq!(b.get(path, 1), None);
+        //check if evicted has it's metadata removed
+        assert_eq!(b.filename_pages.get(path).unwrap().get(&1), None);
+        assert_eq!(b.filename_pages.get(path).unwrap().len(), 3);
 
         //Our oldest page should be 2 at this point, when we access it, 3 should be our oldest and get evicted on next insert
         b.get(path, 2);
@@ -209,6 +225,13 @@ mod tests {
         //check if new page is added and oldest is evicted
         assert_eq!(b.get(path, 5), Some(vec![0, 0, 1, 0, 1]));
         assert_eq!(b.get(path, 3), None);
+        //check if evicted has it's metadata removed
+        assert_eq!(b.filename_pages.get(path).unwrap().get(&3), None);
+        assert_eq!(b.filename_pages.get(path).unwrap().len(), 3);
+
+        //now evict all remaining pages and check if metadata is empty
+        b.evict(b.len());
+        assert_eq!(b.filename_pages.len(), 0);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::{
     filter::bloom_util::{bitmap_len, BYTE_SIZE},
     util::{
-        hash::FastHasher,
+        hash::BloomHasher,
         types::{Key, Value},
     },
 };
@@ -66,7 +66,7 @@ impl BloomFilter {
     }
 
     fn hash_to_index(&self, key: Key, seed: u64) -> (usize, usize) {
-        let index = FastHasher::hash_key_to_index(key, seed, self.bitmap.len() * BYTE_SIZE);
+        let index = BloomHasher::hash_key_to_index(key, seed, self.bitmap.len() * BYTE_SIZE);
         bit_index(index)
     }
 }
