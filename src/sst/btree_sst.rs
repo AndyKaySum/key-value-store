@@ -23,7 +23,7 @@ use super::btree_util::{
 use super::sst_util::{get_entries_at_page, get_sst_page, num_pages};
 use super::{array_sst, SortedStringTable};
 
-type DelimeterBuffer = Vec<(Vec<Key>, Node)>; //Type alias for datastructure used to recursively build inner B-tree nodes from an SST
+type DelimiterBuffer = Vec<(Vec<Key>, Node)>; //Type alias for datastructure used to recursively build inner B-tree nodes from an SST
 
 pub struct Sst;
 
@@ -52,10 +52,10 @@ impl SortedStringTable for Sst {
 
         //get largest entry in each SST page (last value in each)
         let entry_keys: Vec<Key> = entries.iter().map(|(key, _)| *key).collect();
-        let mut delimeters: Vec<Key> = get_last_in_each_chunk(&entry_keys, num_entries_per_page());
+        let mut delimiters: Vec<Key> = get_last_in_each_chunk(&entry_keys, num_entries_per_page());
         assert_eq!(
             num_leaves(num_entries),
-            delimeters.len(),
+            delimiters.len(),
             "Miscalculated number of leaves"
         );
         let node_chunk_size = fanout();
@@ -63,16 +63,16 @@ impl SortedStringTable for Sst {
         //build parent nodes all the way up to root
         for depth in (0..tree_depth(num_entries)).rev() {
             let num_nodes = num_nodes(depth, num_entries);
-            let delimeters_per_node = delimeters.chunks(node_chunk_size); //each chunk corresponds to the values in each node on this level
-            assert_eq!(delimeters_per_node.len(), num_nodes, "Calculated number of nodes on level {level} differs from number of delimeter chunks allocated to this level, chunk sizes: {:?}", delimeters_per_node.map(|delimeter_chunk| delimeter_chunk.len()).collect::<Vec<usize>>()); //if this breaks one of these is wrong
+            let delimiters_per_node = delimiters.chunks(node_chunk_size); //each chunk corresponds to the values in each node on this level
+            assert_eq!(delimiters_per_node.len(), num_nodes, "Calculated number of nodes on level {level} differs from number of delimiter chunks allocated to this level, chunk sizes: {:?}", delimiters_per_node.map(|delimiter_chunk| delimiter_chunk.len()).collect::<Vec<usize>>()); //if this breaks one of these is wrong
 
-            for (node, node_elements) in delimeters_per_node.enumerate() {
+            for (node, node_elements) in delimiters_per_node.enumerate() {
                 seek_node(&mut file, depth, node, num_entries)?;
                 serde_btree::serialize_into(&mut file, node_elements)?;
             }
 
-            //get largest delimeter in subtrees
-            delimeters = get_last_in_each_chunk(&delimeters, fanout());
+            //get largest delimiter in subtrees
+            delimiters = get_last_in_each_chunk(&delimiters, fanout());
         }
 
         Ok(())
@@ -261,7 +261,7 @@ impl SortedStringTable for Sst {
             Ok(key)
         };
 
-        let mut delimeter_buffer: DelimeterBuffer = (0..tree_depth(num_entries))
+        let mut delimiter_buffer: DelimiterBuffer = (0..tree_depth(num_entries))
             .map(|_depth| (Vec::with_capacity(fanout()), 0))
             .collect();
 
@@ -276,13 +276,13 @@ impl SortedStringTable for Sst {
             } else {
                 num_entries_per_page() - 1
             };
-            let delimeter = get_key(page_index, last_element_index)?;
-            delimeter_buffer_insert(
+            let delimiter = get_key(page_index, last_element_index)?;
+            delimiter_buffer_insert(
                 &mut file,
-                &mut delimeter_buffer,
+                &mut delimiter_buffer,
                 tree_depth(num_entries) - 1,
                 num_entries,
-                delimeter,
+                delimiter,
                 is_last_page,
             )?;
         }
@@ -293,34 +293,34 @@ impl SortedStringTable for Sst {
 
 ///Recursively build inner B-tree nodes in a scalable way (only needs <tree depth> * fanout memory).
 /// Requires inserting last value of every page in an SST (one scan)
-fn delimeter_buffer_insert(
+fn delimiter_buffer_insert(
     mut file: &mut std::fs::File,
-    buffer: &mut DelimeterBuffer,
+    buffer: &mut DelimiterBuffer,
     depth: Depth,
     num_entries: Size,
     key: Key,
     force_flush: bool,
 ) -> io::Result<()> {
-    let (delimeters, curr_node) = &mut buffer[depth];
+    let (delimiters, curr_node) = &mut buffer[depth];
 
-    delimeters.push(key);
+    delimiters.push(key);
 
-    //when we reach enough delimeters to write a node (or if we want to force a write),
+    //when we reach enough delimiters to write a node (or if we want to force a write),
     // write all but the last (handled by serialize_into) and move the last value into the upper level,
     // where it will be used to write nodes at that level (when that level fills up)
-    if delimeters.len() >= fanout() || force_flush {
+    if delimiters.len() >= fanout() || force_flush {
         seek_node(file, depth, *curr_node, num_entries)?;
-        serde_btree::serialize_into(&mut file, delimeters)?;
+        serde_btree::serialize_into(&mut file, delimiters)?;
 
-        //largest key is moved to a higher level node, where it is used as a delimeter there
-        let largest_key = delimeters.last().unwrap().to_owned(); //NOTE: should be able to unwrap because of the length check earlier
+        //largest key is moved to a higher level node, where it is used as a delimiter there
+        let largest_key = delimiters.last().unwrap().to_owned(); //NOTE: should be able to unwrap because of the length check earlier
 
-        delimeters.clear(); //we no longer need these delimeters in our buffer
+        delimiters.clear(); //we no longer need these delimiters in our buffer
         *curr_node += 1;
         assert!(*curr_node <= num_nodes(depth, num_entries));
 
         if depth > 0 {
-            delimeter_buffer_insert(
+            delimiter_buffer_insert(
                 file,
                 buffer,
                 depth - 1,

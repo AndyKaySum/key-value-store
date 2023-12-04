@@ -73,8 +73,8 @@ pub fn seek_node(
 pub fn get_last_in_each_chunk(elements: &[Key], chunk_size: usize) -> Vec<Key> {
     elements
         .chunks(chunk_size)
-        .map(|delimeter| {
-            let key = delimeter
+        .map(|delimiter| {
+            let key = delimiter
                 .last()
                 .expect("Failed to collect last element of each leaf node"); //unwrapping should be safe here, but I'll leave the expect anyway
 
@@ -99,9 +99,9 @@ pub fn btree_navigate(
         let node_page_index = node_page_index(depth, next_node, num_entries);
         let node_page = get_btree_page(run_address, node_page_index, buffer_pool.as_deref_mut())?; //NOTE: watch out for the deref_mut, we don't want to accdientally copy the buffer pool, TODO: verify this doesn't break it
 
-        let node_delimeters = serde_btree::deserialize(&node_page).unwrap_or_else(|_| panic!("Failed to deserialize B-tree node during B-tree navigation while searching for key: {key}, name: {db_name}, level: {level}, run: {run}, page_index: {node_page_index} num_entries: {num_entries}"));
+        let node_delimiters = serde_btree::deserialize(&node_page).unwrap_or_else(|_| panic!("Failed to deserialize B-tree node during B-tree navigation while searching for key: {key}, name: {db_name}, level: {level}, run: {run}, page_index: {node_page_index} num_entries: {num_entries}"));
 
-        next_node = binary_search_leftmost(&node_delimeters, key);
+        next_node = binary_search_leftmost(&node_delimiters, key);
         curr_leaf_page_index += next_node * leaves_in_subtree(depth + 1, num_entries);
     }
 
