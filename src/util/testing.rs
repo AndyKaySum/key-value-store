@@ -46,7 +46,7 @@ pub fn part2_db_alterations(db: Database) -> Database {
 
 #[allow(dead_code)]
 pub fn part3_db_alterations(db: Database) -> Database {
-    db.set_compaction_policy(CompactionPolicy::Dovstoevsky)
+    db.set_compaction_policy(CompactionPolicy::Dostoevsky)
         .set_sst_size_ratio(2)
         .set_sst_implementation(SstImplementation::Btree)
         .set_sst_search_algorithm(SstSearchAlgorithm::Default)

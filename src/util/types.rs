@@ -28,7 +28,7 @@ pub enum CompactionPolicy {
     None,
     Leveled,
     Tiered,
-    Dovstoevsky,
+    Dostoevsky,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]

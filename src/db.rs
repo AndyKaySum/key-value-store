@@ -455,7 +455,7 @@ impl Database {
             CompactionPolicy::None => {}
             CompactionPolicy::Leveled => leveled_compact(self),
             CompactionPolicy::Tiered => tiered_compact(self),
-            CompactionPolicy::Dovstoevsky => {
+            CompactionPolicy::Dostoevsky => {
                 if is_last_level {
                     leveled_compact(self);
                 } else {
