@@ -87,7 +87,9 @@ impl BufferPool {
                 if let Some((path_evicted, page_index_evicted)) = frames.bucket_remove_lru(handle) {
                     num_evicted += 1;
                     //remove page index from metadata
-                    if let Some(filename_pages_of_evicted) = self.filename_pages.get_mut(&path_evicted) {
+                    if let Some(filename_pages_of_evicted) =
+                        self.filename_pages.get_mut(&path_evicted)
+                    {
                         filename_pages_of_evicted.remove(&page_index_evicted);
                         //if there is no metadata for this file left, remove its metadata set altogether
                         if filename_pages_of_evicted.is_empty() {
