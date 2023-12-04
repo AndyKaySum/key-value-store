@@ -49,11 +49,11 @@ pub fn run(
         "Get experiment, get random value in range {}..{}",
         get_range_lower, get_range_upper
     );
-    let get_experiment = &mut |db: &mut Database, key: &Key| {
+    let get_experiment = &mut |db: &mut Database, key: &Key, _value: &Value| {
         db.get(*key);
     };
-    let get_experiment_input: Vec<Key> = (get_range_lower..get_range_upper).collect();
-    let get_results = bm.run_experiment(get_experiment, &get_experiment_input);
+    let get_experiment_input_range = (get_range_lower, get_range_upper);
+    let get_results = bm.run_experiment(get_experiment, &get_experiment_input_range);
     println!("{:?}", get_results);
 
     //scan range ensures that entire scan size is within db
@@ -64,32 +64,26 @@ pub fn run(
         "Scan experiment, scan size:{scan_size} in range {}..{}",
         scan_range_lower, scan_range_upper
     );
-    let scan_experiment = &mut |db: &mut Database, (key1, key2): &(Key, Key)| {
-        db.scan(*key1, *key2);
+    let scan_experiment = &mut |db: &mut Database, key: &Key, _value: &Value| {
+        db.scan(*key, *key + scan_size);
     };
-    let scan_ranges: Vec<(Key, Key)> = (scan_range_lower..scan_range_upper)
-        .map(|value| (value, value + scan_size))
-        .collect();
-    let scan_results = bm.run_experiment(scan_experiment, &scan_ranges);
+    let scan_experiment_input_range = (scan_range_lower, scan_range_upper);
+    let scan_results = bm.run_experiment(scan_experiment, &scan_experiment_input_range);
     println!("{:?}", scan_results);
 
     //put range has a low probability of adding something already in the memtable
-    let memtable_entry_size = MEMTABLE_MB_SIZE * 2_usize.pow(20) / ENTRY_SIZE;
-    let put_universe_size = memtable_entry_size as i64 * 100;
-    let put_range_lower = -put_universe_size / 2;
-    let put_range_upper = put_universe_size / 2;
+    let put_range_lower = Key::MIN + 1;
+    let put_range_upper = Key::MAX;
 
     println!(
-        "put experiment, put random (value, value*2) as (key, value) in range {}..{}",
+        "put experiment, put random (key, value) in range {}..{} (key range only, value can be anything)",
         put_range_lower, put_range_upper
     );
-    let put_experiment = &mut |db: &mut Database, (key, value): &(Key, Value)| {
+    let put_experiment = &mut |db: &mut Database, key: &Key, value: &Value| {
         db.put(*key, *value);
     };
-    let put_experiment_input: Vec<(Key, Value)> = (put_range_lower..put_range_upper)
-        .map(|value| (value, value * 2))
-        .collect();
-    let put_results = bm.run_reset_experiment(put_experiment, &put_experiment_input);
+    let put_experiment_input_range = (put_range_lower, put_range_upper);
+    let put_results = bm.run_reset_experiment(put_experiment, &put_experiment_input_range);
     println!("{:?}\n", put_results);
 
     (db_mb_sizes, [get_results, scan_results, put_results])

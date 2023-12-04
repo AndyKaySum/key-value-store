@@ -408,9 +408,9 @@ impl<K: Hash + Eq + Debug + Clone, V: Debug + Clone, H: Hasher + Default + Debug
         }
     }
     ///Removes the least recently used element in the the bucket at index <bucket_index>.
-    /// Returns true iff successfully removed an element
-    pub fn bucket_remove_lru(&mut self, bucket_index: usize) -> bool {
-        self.bucket_pop_front(bucket_index).is_some() //NOTE: elements are moved to the back on access, so front is least recently accessed
+    /// Returns key if successfully removed an element
+    pub fn bucket_remove_lru(&mut self, bucket_index: usize) -> Option<K> {
+        self.bucket_pop_front(bucket_index).map(|(key, ..)| key) //NOTE: elements are moved to the back on access, so front is least recently accessed
     }
     fn hash_key(&self, key: &K) -> u64 {
         let mut hasher: H = H::default();
