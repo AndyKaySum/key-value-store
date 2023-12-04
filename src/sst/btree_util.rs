@@ -215,6 +215,21 @@ mod tests {
     }
 
     #[test]
+    fn test_leaves_in_subtree() {
+        let num_entries = num_entries_per_page() * fanout().pow(3) - 73;
+        let depths: Vec<Depth> = (0..tree_depth(num_entries)).rev().collect();
+
+        let deepest_inner_node_depth = depths[0]; //0 index since we reversed the iter
+        assert_eq!(
+            leaves_in_subtree(deepest_inner_node_depth, num_entries),
+            fanout()
+        ); //when you skip an inner node at lowest level, you skip all its children, there are fanout children
+
+        assert_eq!(leaves_in_subtree(depths[1], num_entries), fanout().pow(2)); //skipping a node with fanout children, each who have fanout children (leaves)
+        assert_eq!(leaves_in_subtree(depths[2], num_entries), fanout().pow(3));
+    }
+
+    #[test]
     fn get_each_node_largest_entry_test() {
         let b = fanout();
         let entries: Vec<Key> = (0..b * 3 - 100).map(|value| value as Key).collect(); //3 nodes worth of entries
