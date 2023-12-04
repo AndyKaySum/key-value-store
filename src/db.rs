@@ -352,9 +352,11 @@ impl Database {
         for run in 0..entry_counts[level].len() {
             let new_run = run + num_runs_in_next_level; //run number to rename assign to our run when it's moved
 
+            let old_run_address = &(db_name.as_str(), level, run);
+            let new_run_address = &(db_name.as_str(), next_level, new_run);
             //rename SST file
-            let sst_path = filename::sst_path(&(db_name, level, run));
-            let new_sst_path = filename::sst_path(&(db_name, next_level, new_run));
+            let sst_path = filename::sst_path(old_run_address);
+            let new_sst_path = filename::sst_path(new_run_address);
 
             assert!(
                 !Path::new(&new_sst_path).exists(),
@@ -363,16 +365,16 @@ impl Database {
             file_interface::rename_file(&sst_path, &new_sst_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename SST file from {sst_path} to {new_sst_path}, reason: {why}")); //every run has an SST file (don't need to check if it exists)
 
             //rename B-tree file (if applicable)
-            let btree_path = filename::sst_btree_path(&(db_name, level, run));
+            let btree_path = filename::sst_btree_path(old_run_address);
             if Path::new(&btree_path).exists() {
-                let new_btree_path = filename::sst_btree_path(&(db_name, next_level, new_run));
+                let new_btree_path = filename::sst_btree_path(new_run_address);
                 file_interface::rename_file(&btree_path, &new_btree_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename B-tree file from {btree_path} to {new_btree_path}, reason: {why}"));
             }
 
             //rename bloom filter (if applicable)
-            let bloom_path = filename::bloom_filter_path(&(db_name, level, run));
+            let bloom_path = filename::bloom_filter_path(old_run_address);
             if Path::new(&bloom_path).exists() {
-                let new_bloom_path = filename::bloom_filter_path(&(db_name, next_level, new_run));
+                let new_bloom_path = filename::bloom_filter_path(new_run_address);
                 file_interface::rename_file(&bloom_path, &new_bloom_path, buffer_pool.as_deref_mut()).unwrap_or_else(|why| panic!("Failed to rename bloom filter file from {bloom_path} to {new_bloom_path}, reason: {why}"));
             }
         }
@@ -484,21 +486,21 @@ impl Database {
         };
 
         let next_run_num = self.sst_count(level); //this will be zero after moving runs
+        let run_address = &(self.name.as_str(), level, next_run_num);
 
         //Write memtable to storage
         let entries = self.memtable.as_vec();
         let num_entries = entries.len();
 
         self.sst_interface()
-            .write(&(&self.name, level, next_run_num), &entries)
+            .write(run_address, &entries)
             .unwrap_or_else(|why| panic!("Failed to flush memtable to SST, reason: {why}"));
 
         if self.enable_bloom_filter() {
             let filter = BloomFilter::from_entries(&entries, self.bloom_filter_bits_per_entry());
-            BloomFilterIO::write(&(&self.name, level, next_run_num), &filter.bitmap)
-                .unwrap_or_else(|why| {
-                    panic!("Failed to write bloom filter for memtable flush, reason: {why}")
-                });
+            BloomFilterIO::write(run_address, &filter.bitmap).unwrap_or_else(|why| {
+                panic!("Failed to write bloom filter for memtable flush, reason: {why}")
+            });
         }
 
         self.metadata.entry_counts[level].push(num_entries);
