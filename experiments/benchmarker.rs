@@ -38,26 +38,27 @@ fn _fill_db_with_size(db: &mut Database, num_bytes: Size) -> Vec<(Key, Value)> {
 ///Runs num_trials number of iterations, each iteration we count how many operations (with a random input) can be done within the window_duration.
 /// Returns Average number of operations per second
 #[allow(clippy::unit_arg)] //Get rid of black box warning
-fn bench_bandwidth<T: std::marker::Copy>(
+fn bench_bandwidth(
     db: &mut Database,
-    experiment: &mut dyn FnMut(&mut Database, &T),
-    experiment_input: &Vec<T>,
+    experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
+    experiment_key_range: &(Key, Key),
     window_duration_sec: u128,
     num_trials: usize,
 ) -> f64 {
+    let (lower, upper) = *experiment_key_range;
     let window_nano_sec = window_duration_sec * NS_PER_SEC;
     let mut opcount_each_trial = vec![0; num_trials];
 
     for op_count in opcount_each_trial.iter_mut() {
         let mut total_duration = 0;
+        let mut rng = rand::thread_rng();
         while total_duration < window_nano_sec {
             //select random input for experiment
-            let input = experiment_input
-                .choose(&mut thread_rng())
-                .expect("experiment_input vec is empty");
+            let input_key = rng.gen_range(lower..upper);
+            let input_value = rng.gen_range(Value::MIN + 1..=Value::MAX); //NOTE: We do MIN + 1, because MIN is not a valid value or key to enter into the DB
 
             let start = Instant::now();
-            black_box(experiment(db, input)); //black box prevents our experiment from being optimized away
+            black_box(experiment(db, &input_key, &input_value)); //black box prevents our experiment from being optimized away
             let duration = start.elapsed().as_nanos();
 
             *op_count += 1;
@@ -71,11 +72,11 @@ fn bench_bandwidth<T: std::marker::Copy>(
 
 ///Creates a db and runs experiment as many times as possible within window_duration, repeats num_trials times and
 /// return the avg number of operations per second
-fn bench_bandwidth_based_on_size<T: std::marker::Copy>(
+fn bench_bandwidth_based_on_size(
     database_size_bytes: Size,
     database_alterations: &mut dyn FnMut(Database) -> Database,
-    experiment: &mut dyn FnMut(&mut Database, &T),
-    experiment_input: &Vec<T>,
+    experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
+    experiment_key_range: &(Key, Key),
     window_duration_sec: u128,
     num_trials: usize,
 ) -> f64 {
@@ -92,7 +93,7 @@ fn bench_bandwidth_based_on_size<T: std::marker::Copy>(
     let ops_per_sec = bench_bandwidth(
         &mut db,
         experiment,
-        experiment_input,
+        experiment_key_range,
         window_duration_sec,
         num_trials,
     );
@@ -105,11 +106,11 @@ fn bench_bandwidth_based_on_size<T: std::marker::Copy>(
 }
 
 ///creates a new db instance each trial, returns avg ops/sec
-fn bench_bandwidth_based_on_size_reset_each<T: std::marker::Copy>(
+fn bench_bandwidth_based_on_size_reset_each(
     database_size_bytes: Size,
     database_alterations: &mut dyn FnMut(Database) -> Database,
-    experiment: &mut dyn FnMut(&mut Database, &T),
-    experiment_input: &Vec<T>,
+    experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
+    experiment_key_range: &(Key, Key),
     window_duration_sec: u128,
     num_trials: usize,
 ) -> f64 {
@@ -119,7 +120,7 @@ fn bench_bandwidth_based_on_size_reset_each<T: std::marker::Copy>(
             database_size_bytes,
             database_alterations,
             experiment,
-            experiment_input,
+            experiment_key_range,
             window_duration_sec,
             1,
         )
@@ -149,10 +150,10 @@ impl Benchmarker {
         }
     }
     ///Runs experiment, returns a vector of avg ops/sec
-    pub fn run_experiment<T: std::marker::Copy>(
+    pub fn run_experiment(
         &mut self,
-        experiment: &mut dyn FnMut(&mut Database, &T),
-        experiment_input: &Vec<T>,
+        experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
+        experiment_key_range: &(Key, Key),
     ) -> Vec<f64> {
         let mut results = Vec::<f64>::new();
         for database_size_bytes in &self.db_byte_sizes {
@@ -160,7 +161,7 @@ impl Benchmarker {
                 *database_size_bytes,
                 &mut self.database_alterations,
                 experiment,
-                experiment_input,
+                experiment_key_range,
                 self.window_duration_sec,
                 self.num_trials,
             );
@@ -169,10 +170,10 @@ impl Benchmarker {
         results
     }
     ///Runs experiment, remaking the database each time, returns a vector of avg ops/sec
-    pub fn run_reset_experiment<T: std::marker::Copy>(
+    pub fn run_reset_experiment(
         &mut self,
-        experiment: &mut dyn FnMut(&mut Database, &T),
-        experiment_input: &Vec<T>,
+        experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
+        experiment_key_range: &(Key, Key),
     ) -> Vec<f64> {
         let mut results = Vec::<f64>::new();
         for database_size_bytes in &self.db_byte_sizes {
@@ -180,7 +181,7 @@ impl Benchmarker {
                 *database_size_bytes,
                 &mut self.database_alterations,
                 experiment,
-                experiment_input,
+                experiment_key_range,
                 self.window_duration_sec,
                 self.num_trials,
             );
