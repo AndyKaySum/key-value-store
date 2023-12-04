@@ -200,8 +200,8 @@ impl Database {
     pub fn enable_bloom_filter(&self) -> bool {
         self.config.enable_bloom_filter
     }
-    pub fn set_enable_bloom_filter(mut self, enable_buffer_pool: bool) -> Self {
-        self.config.enable_bloom_filter = enable_buffer_pool;
+    pub fn set_enable_bloom_filter(mut self, enable_bloom_filter: bool) -> Self {
+        self.config.enable_bloom_filter = enable_bloom_filter;
         self
     }
     pub fn bloom_filter_bits_per_entry(&self) -> Size {
