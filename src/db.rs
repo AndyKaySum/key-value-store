@@ -131,6 +131,7 @@ impl Database {
         self.config.sst_size_ratio
     }
     pub fn set_sst_size_ratio(mut self, sst_size_ratio: Size) -> Self {
+        assert!(sst_size_ratio > 1, "Size ratio must be greater than 1");
         self.config.sst_size_ratio = sst_size_ratio;
         self
     }
