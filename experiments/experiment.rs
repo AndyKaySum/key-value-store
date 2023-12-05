@@ -114,11 +114,15 @@ pub fn common_database_alterations(db: Database) -> Database {
 
 pub fn part1() {
     /*
-        Design an experiment comparing your binary search to B-tree search in terms of query
-        throughput (on the y-axis) as you increase the data size (on the x-axis). This
-        experiment should be done with uniformly randomly distributed point queries and data.
-        The buffer pool should be enabled in this experiment, and the data should grow beyond
-        the maximum buffer pool size so that evictions kick in. Explain your findings.
+        For this step of the project, please generate experiments that measure the 
+        performance of your three operators, put, get and scan, as you insert more 
+        data into the system. The x-axis should report the data volume that had been 
+        inserted, while the y-axes should report throughput. Three figures should be 
+        produced, one for each operation. These should be included in your report under 
+        the title “Experiments for Step 1”. Bandwidth can be measured by dividing time 
+        into consecutive windows (e.g., 10 seconds each), recording how many operations 
+        were performed in each window, and diving by the window length in seconds to get 
+        the average number of operations per second
     */
     println!("Part 1: Experiment");
     println!("Memtable Size: {} MB\n", MEMTABLE_MB_SIZE);
