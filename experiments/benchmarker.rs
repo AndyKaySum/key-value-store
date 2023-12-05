@@ -12,7 +12,7 @@ use std::{hint::black_box, time::Instant};
 const NS_PER_SEC: u128 = 1_000_000_000; //For conversions from sec to nanosec
 
 ///Inserts num_bytes worth of entries, returns entries added (in order that they were added)
-fn _fill_db_with_size(db: &mut Database, num_bytes: Size) -> Vec<Entry> {
+fn fill_db_with_size(db: &mut Database, num_bytes: Size) -> Vec<Entry> {
     let num_entries = ceil_div!(num_bytes, ENTRY_SIZE); //ceil divison
     let range = 0..num_entries;
 
@@ -38,7 +38,7 @@ fn _fill_db_with_size(db: &mut Database, num_bytes: Size) -> Vec<Entry> {
 ///Runs num_trials number of iterations, each iteration we count how many operations (with a random input) can be done within the window_duration.
 /// Returns Average number of operations per second
 #[allow(clippy::unit_arg)] //Get rid of black box warning
-fn bench_bandwidth(
+fn bench_throughput(
     db: &mut Database,
     experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
     experiment_key_range: &(Key, Key),
@@ -72,7 +72,7 @@ fn bench_bandwidth(
 
 ///Creates a db and runs experiment as many times as possible within window_duration, repeats num_trials times and
 /// return the avg number of operations per second
-fn bench_bandwidth_based_on_size(
+fn bench_throughput_on_db_size(
     database_size_bytes: Size,
     database_alterations: &mut dyn FnMut(Database) -> Database,
     experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
@@ -89,8 +89,8 @@ fn bench_bandwidth_based_on_size(
 
     let mut db = database_alterations(Database::open(&db_name));
 
-    _fill_db_with_size(&mut db, database_size_bytes);
-    let ops_per_sec = bench_bandwidth(
+    fill_db_with_size(&mut db, database_size_bytes);
+    let ops_per_sec = bench_throughput(
         &mut db,
         experiment,
         experiment_key_range,
@@ -106,7 +106,7 @@ fn bench_bandwidth_based_on_size(
 }
 
 ///creates a new db instance each trial, returns avg ops/sec
-fn bench_bandwidth_based_on_size_reset_each(
+fn bench_throughput_on_db_size_reset_each(
     database_size_bytes: Size,
     database_alterations: &mut dyn FnMut(Database) -> Database,
     experiment: &mut dyn FnMut(&mut Database, &Key, &Value),
@@ -116,7 +116,7 @@ fn bench_bandwidth_based_on_size_reset_each(
 ) -> f64 {
     let mut total_ops_per_sec = 0.0;
     for _ in 0..num_trials {
-        total_ops_per_sec += bench_bandwidth_based_on_size(
+        total_ops_per_sec += bench_throughput_on_db_size(
             database_size_bytes,
             database_alterations,
             experiment,
@@ -157,7 +157,7 @@ impl Benchmarker {
     ) -> Vec<f64> {
         let mut results = Vec::<f64>::new();
         for database_size_bytes in &self.db_byte_sizes {
-            let data = bench_bandwidth_based_on_size(
+            let data = bench_throughput_on_db_size(
                 *database_size_bytes,
                 &mut self.database_alterations,
                 experiment,
@@ -177,7 +177,7 @@ impl Benchmarker {
     ) -> Vec<f64> {
         let mut results = Vec::<f64>::new();
         for database_size_bytes in &self.db_byte_sizes {
-            let data = bench_bandwidth_based_on_size_reset_each(
+            let data = bench_throughput_on_db_size_reset_each(
                 *database_size_bytes,
                 &mut self.database_alterations,
                 experiment,
