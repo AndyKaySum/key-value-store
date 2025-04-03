@@ -158,6 +158,7 @@ The database follows an LSM tree architecture with the following components:
   - Requires only one scan of the sorted file
   - Uses $O(\text{levels} \times \text{fanout})$ memory
   - Costs $O(N/B)$ I/Os to scan the file and $O(\text{inner nodes})$ I/Os to write
+  - Where $N$ is the number of entries and $B$ is the page size (number of entries per page)
 
 ### Performance Considerations
 
