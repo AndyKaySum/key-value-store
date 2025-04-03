@@ -14,7 +14,7 @@ A high-performance key-value store built in Rust with Log-Structured Merge (LSM)
   - None: no compaction
   - Leveled: compaction by level
   - Tiered: compaction by size ratio
-  - Dostoevsky: hybrid policy using tiered for lower levels and leveled for highest level
+  - [Dostoevsky](https://scholar.harvard.edu/files/stratos/files/dostoevskykv.pdf): hybrid policy using tiered for lower levels and leveled for highest level
 - Core operations:
   - `get`: Retrieve a value by key
   - `put`: Insert or update a key-value pair
